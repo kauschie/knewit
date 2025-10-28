@@ -1,6 +1,24 @@
 # server/app_new.py
 """
 Enhanced quiz server with lobby system, quiz creation, and session management.
+
+Responsibilities:
+- Exposes HTTP health-check `/ping`.
+- Exposes WebSocket endpoint `/ws` (handles host vs student roles).
+- Routes JSON messages (examples: `session.create`, `session.join`, `quiz.load`,
+    `quiz.save`, `quiz.start`, `answer.submit`) and performs server-side session
+    management using typed dataclasses from `knewit/server/quiz_types.py`.
+- Provides helpers to broadcast session-level messages to connected clients.
+
+Notes / operational caveats:
+- Session state is kept in-process (see `quiz_types.py`). For multi-worker or
+    multi-host deployments you must migrate state to an external store (Redis, DB)
+    or implement a shared coordination layer.
+- Some filesystem operations (saving quizzes) are synchronous; they are off-
+    loaded to a thread to avoid blocking the event loop.
+- The app starts a background ping loop at startup to emit application-level
+    "ping" messages to connected clients; clients should reply with `pong` so
+    the server can measure latency.
 """
 import asyncio
 import json
@@ -41,7 +59,7 @@ async def lifespan(app: FastAPI):
         print("[lifespan] shutting down")
         if _ping_task:
             _ping_task.cancel()
-        await asyncio.gather(_ping_task, return_exceptions=True)
+            await asyncio.gather(_ping_task, return_exceptions=True)
         print("[lifespan] bye")
 
 
@@ -165,8 +183,10 @@ async def ws_endpoint(
                 quiz_data = data.get("quiz")
                 if quiz_data:
                     quiz = Quiz.from_dict(quiz_data)
-                    filepath = quiz.save_to_file()
-                    
+                    # Offload synchronous file I/O to a thread so we don't block the
+                    # event loop. `save_to_file` performs normal file writes.
+                    filepath = await asyncio.to_thread(quiz.save_to_file)
+
                     await ws.send_text(json.dumps({
                         "type": "quiz.saved",
                         "filepath": filepath,
@@ -306,11 +326,33 @@ async def broadcast_lobby(session: QuizSession):
 
 
 async def ping_loop():
-    """Send periodic pings to all connections."""
+    """Send periodic, application-level pings to all connected sockets.
+
+    This emits a lightweight JSON `{"type": "ping", "ts": <epoch>}` message
+    to every connection so clients can respond with `pong`. The server can use
+    the round-trip time to measure latency per-player (for UI/leaderboard
+    features) and to detect dead peers.
+    """
+    # Import inside the function to avoid potential circular imports at module
+    # load time. `quiz_sessions` is the in-memory mapping of active sessions.
+    # Use the same import style as the top of this module (plain `quiz_types`) so
+    # the module can be run in the repo layout the project uses.
+    from quiz_types import quiz_sessions
+    import time
+
     while True:
         await asyncio.sleep(PING_INTERVAL)
-        # For now, we rely on websocket's built-in ping/pong
-        # Could add custom heartbeat logic here if needed
+        now = time.time()
+
+        # Iterate a snapshot of sessions to avoid mutation while iterating.
+        for session in list(quiz_sessions.values()):
+            for pid, ws in list(session.connections.items()):
+                try:
+                    await ws.send_text(json.dumps({"type": "ping", "ts": now}))
+                except Exception:
+                    # Ignore send errors here; connection cleanup happens elsewhere
+                    # (broadcast/remove on send failure or during receive loop).
+                    continue
 
 
 if __name__ == "__main__":
