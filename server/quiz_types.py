@@ -45,12 +45,19 @@ class Player:
     name: str
     score: int = 0
     answered_current: bool = False
+    # Runtime/network metadata (updated by server on pings/pongs)
+    last_pong: Optional[float] = None  # server epoch seconds when last pong received
+    latency_ms: Optional[float] = None
+    last_seen: Optional[float] = None
     
     def to_dict(self) -> dict:
         return {
             "player_id": self.player_id,
             "name": self.name,
             "score": self.score
+        ,
+            # Include latency if available (float ms) so UIs can display it.
+            "latency_ms": None if self.latency_ms is None else round(self.latency_ms, 1)
         }
 
 @dataclass
@@ -210,7 +217,8 @@ quiz_sessions: Dict[str, QuizSession] = {}
 
 def create_session(host_id: str) -> QuizSession:
     """Create a new quiz session with a unique ID."""
-    session_id = secrets.token_urlsafe(6)  # Shorter, easier to share
+    # session_id = secrets.token_urlsafe(6)  # Shorter, easier to share
+    session_id = "demo"  # For testing purposes
     session = QuizSession(
         id=session_id,
         host_id=host_id

@@ -107,8 +107,30 @@ async def ws_endpoint(
             data = json.loads(raw)
             msg_type = data.get("type")
             
-            # Heartbeat
+            # Heartbeat (client pong replies to our application-level ping)
             if msg_type == "pong":
+                # Expect client to echo back the server ts we sent in ping.
+                ts = data.get("ts")
+                try:
+                    ts = float(ts) if ts is not None else None
+                except Exception:
+                    ts = None
+
+                if ts and session and player_id in session.players:
+                    # Compute RTT (server_now - ts) in milliseconds
+                    import time
+                    now = time.time()
+                    latency_ms = (now - ts) * 1000.0
+
+                    player = session.players.get(player_id)
+                    if player:
+                        player.last_pong = now
+                        player.latency_ms = latency_ms
+                        player.last_seen = now
+                        # Broadcast updated lobby so UIs can show latency next to names
+                        await broadcast_lobby(session)
+
+                # Nothing more to do for heartbeat messages.
                 continue
             
             # Session creation (host only)

@@ -3,11 +3,16 @@ import os
 import sys
 import asyncio
 import json
+import logging
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Button, Label, Input, ListView, ListItem
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.reactive import reactive
+
+logging.basicConfig(filename='logs/host_tui.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
 from textual_plotext import PlotextPlot
 
 from ws_client import WSClient
@@ -31,21 +36,27 @@ class HostTUI(App):
         background: blue;
     }
     
+    /* top status & session */
     #status {
         height: 1;
         color: yellow;
     }
-    
+
     #session-info {
-        height: 3;
-        background: green;
-        padding: 1;
+        height: 1;
+        background: $panel;
+        padding: 0 1;
+        content-align: left middle;
+        color: green;
     }
     
+    /* main lobby area */
     #lobby {
-        height: 15;
+        height: 1fr;
+        min-height: 8;
         border: solid cyan;
         padding: 1;
+        layout: vertical;
     }
     
     .player-item {
@@ -53,30 +64,45 @@ class HostTUI(App):
         margin-bottom: 1;
     }
     
+    /* current question bar */
     #current {
         height: 3;
         color: cyan;
+        padding: 0 1;
+        background: $panel;
     }
     
+    /* plot area */
     #plot {
         height: 12;
+        border: solid white;
+        padding: 1;
     }
     
     Button {
         margin: 1;
     }
-    
+
+    /* initial setup area: center the create button */
+    #setup-controls {
+        align-horizontal: center;
+        padding: 1 0;
+    }
+
     .action-btn {
-        width: 100%;
+        width: 40;
+        align: center middle;
         margin-bottom: 1;
     }
     
     /* Quiz selection overlay */
+    /* quiz selection overlay */
     #quiz-selection {
         height: 100%;
         background: $panel;
         border: thick cyan;
         padding: 2;
+        layout: vertical;
     }
     
     .selection-title {
@@ -98,11 +124,12 @@ class HostTUI(App):
         border: solid green;
         padding: 1;
         margin: 1;
+        overflow: auto;
     }
     
     .quiz-select-btn {
         width: 100%;
-        height: 5;
+        min-height: 3;
         margin-bottom: 1;
         background: green 30%;
         border: solid green;
@@ -172,8 +199,46 @@ class HostTUI(App):
     async def on_mount(self) -> None:
         """Connect to server."""
         # Hide lobby and quiz controls initially
-        self.query_one("#lobby").display = False
-        self.query_one("#quiz-controls").display = False
+        # Textual exposes a `.visible` property for widgets — use that
+        lobby_w = self.query_one("#lobby")
+        quiz_controls_w = self.query_one("#quiz-controls")
+        # Prefer .visible but fall back to .display for older Textual versions
+        if hasattr(lobby_w, "visible"):
+            lobby_w.visible = False
+        else:
+            try:
+                lobby_w.display = False
+            except Exception:
+                pass
+
+        if hasattr(quiz_controls_w, "visible"):
+            quiz_controls_w.visible = False
+        else:
+            try:
+                quiz_controls_w.display = False
+            except Exception:
+                pass
+
+        # Ensure setup controls are visible (some environments may hide them);
+        # focus the create button so users can immediately create a session.
+        try:
+            setup = self.query_one("#setup-controls")
+            if hasattr(setup, "visible"):
+                setup.visible = True
+            else:
+                try:
+                    setup.display = True
+                except Exception:
+                    pass
+            # Give focus to the create-session button for keyboard users.
+            try:
+                self.query_one("#create-session", Button).focus()
+            except Exception:
+                pass
+        except Exception:
+            # If the setup-controls container is missing, log for debugging
+            logger.warning("#setup-controls not found on mount")
+        # (setup-controls visibility already enforced above)
         
         url = f"{self.server_url}/ws?player_id=host&is_host=true"
         self.ws_client = WSClient(url, self.handle_event)
@@ -199,13 +264,21 @@ class HostTUI(App):
                     f"Session ID: {self.session_id}\n"
                     f"Share this code with students!"
                 )
-                self.query_one("#setup-controls").display = False
-                self.query_one("#lobby").display = True
-                self.query_one("#quiz-controls").display = True
+                self.query_one("#setup-controls").visible = False
+                self.query_one("#lobby").visible = True
+                self.query_one("#quiz-controls").visible = True
             
             elif msg_type == "lobby.update":
+                logger.info("Lobby updated")
+                # Update local state and refresh the player list in the UI.
                 self.players = msg.get("players", [])
-                self._update_player_list()
+                logger.info(f"Current players: {[p.get('name') for p in self.players]}" )
+                # Use async update to ensure mounts/DOM ops run in the app task
+                try:
+                    await self._update_player_list()
+                except Exception as e:
+                    # Log any UI update errors for debugging
+                    logger.exception(f"Error updating player list: {e}")
             
             elif msg_type == "quiz.loaded":
                 self.quiz_loaded = True
@@ -237,12 +310,9 @@ class HostTUI(App):
             
             elif msg_type == "error":
                 self.query_one("#status").update(f"[red]{msg.get('message', 'Error')}")
-                
         except Exception as e:
-            print(f"Error handling event: {e}")
-            import traceback
-            traceback.print_exc()
-    
+            logger.exception(f"Unhandled exception in handle_event: {e}")
+
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button clicks."""
         button_id = event.button.id
@@ -278,11 +348,11 @@ class HostTUI(App):
         elif button_id == "cancel-selection":
             # Hide selection, show main controls
             try:
-                self.query_one("#quiz-selection").display = False
+                self.query_one("#quiz-selection").visible = False
             except:
                 pass
-            self.query_one("#lobby").display = True
-            self.query_one("#quiz-controls").display = True
+            self.query_one("#lobby").visible = True
+            self.query_one("#quiz-controls").visible = True
             self.query_one("#status").update("[yellow]Quiz selection cancelled")
     
     async def _create_quiz(self):
@@ -339,7 +409,7 @@ class HostTUI(App):
                             'num_questions': len(data.get('questions', []))
                         })
                 except Exception as e:
-                    print(f"Error reading quiz {quiz_file}: {e}")
+                    logging.exception(f"Error reading quiz {quiz_file}: {e}")
             
             if not quiz_list:
                 self.query_one("#status").update("[red]No valid quizzes found")
@@ -356,8 +426,8 @@ class HostTUI(App):
     async def _show_quiz_selection(self, quiz_list: list, quizzes_dir: Path):
         """Show an inline quiz selection menu."""
         # Hide main controls
-        self.query_one("#lobby").display = False
-        self.query_one("#quiz-controls").display = False
+        self.query_one("#lobby").visible = False
+        self.query_one("#quiz-controls").visible = False
         
         # Get or create selection container
         try:
@@ -368,7 +438,7 @@ class HostTUI(App):
             selection_container = Vertical(id="quiz-selection")
             self.mount(selection_container)
         
-        selection_container.display = True
+        selection_container.visible = True
         
         # Add title
         selection_container.mount(Static("Select a Quiz", classes="selection-title"))
@@ -403,13 +473,13 @@ class HostTUI(App):
             
             # Hide selection
             try:
-                self.query_one("#quiz-selection").display = False
+                self.query_one("#quiz-selection").visible = False
             except:
                 pass
             
             # Show main controls
-            self.query_one("#lobby").display = True
-            self.query_one("#quiz-controls").display = True
+            self.query_one("#lobby").visible = True
+            self.query_one("#quiz-controls").visible = True
             
             # Send to server
             if self.ws_client:
@@ -423,21 +493,43 @@ class HostTUI(App):
             import traceback
             traceback.print_exc()
     
-    def _update_player_list(self):
-        """Update the player list display."""
+    async def _update_player_list(self):
+        """Asynchronously update the player list display.
+
+        Making this async and `await`ing mounts helps ensure Textual's
+        DOM operations run in the app task and the UI is refreshed
+        immediately when the server sends `lobby.update`.
+        """
         container = self.query_one("#player-list", ScrollableContainer)
-        container.remove_children()
-        
+        # Clear existing children
+        try:
+            container.remove_children()
+        except Exception:
+            # Fallback: attempt to clear via mounting an empty Static
+            try:
+                container.mount(Static("") )
+            except Exception:
+                pass
+
+        # If no players, show a placeholder
         if not self.players:
-            container.mount(Static("No players yet..."))
+            await container.mount(Static("No players yet..."))
+            await container.refresh()
             return
-        
+
+        # Mount each player row. We must mount the row into the container
+        # before mounting children onto the row (Textual requirement).
         for player in self.players:
             # Create horizontal item for each player
             item = Horizontal(classes="player-item")
-            item.mount(Static(f"{player['name']} ({player['score']} pts)"))
-            item.mount(Button("Kick", id=f"kick-{player['player_id']}"))
-            container.mount(item)
+            # First mount the item into the container so it's part of the DOM
+            await container.mount(item)
+            # Then mount children into the already-mounted row
+            await item.mount(Static(f"{player.get('name')} ({player.get('score',0)} pts)"))
+            await item.mount(Button("Kick", id=f"kick-{player.get('player_id')}"))
+
+        # Ensure the container repaints
+        await container.refresh()
     
     def _draw_bars(self, values: list[int]) -> None:
         """Update answer histogram."""

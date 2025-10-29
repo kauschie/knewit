@@ -87,6 +87,10 @@ class StudentTUI(App):
         self._exiting = False
         # Incremented on each new question to generate unique widget IDs
         self._question_seq = 0
+        # When the user presses Join we record the join intent here and only
+        # send the actual `session.join` message when we receive the server
+        # `welcome` acknowledgement. This avoids brittle sleeps/waits.
+        self._pending_join: tuple[str, str] | None = None
     
     def compose(self) -> ComposeResult:
         """Create and yield widgets."""
@@ -104,6 +108,11 @@ class StudentTUI(App):
         
         # Quiz interface (hidden until joined)
         yield Static("", id="prompt")
+
+        # Players area: will be populated on `lobby.update` messages.
+        yield Static("Players:", id="players_header")
+        with Vertical(id="players"):
+            pass
         
         # Use a container for answer buttons
         with Vertical(id="options"):
@@ -154,14 +163,10 @@ class StudentTUI(App):
             )
             self.query_one("#status").update("Connecting...")
             
-            # Send join request
-            await asyncio.sleep(0.5)  # Wait for connection
-            if self.ws_client:
-                await self.ws_client.send({
-                    "type": "session.join",
-                    "session_id": session_id,
-                    "name": player_id
-                })
+            # Record pending join intent; the actual `session.join` will be
+            # sent when we receive the server's `welcome` message. This is
+            # more robust than sleeping for an arbitrary amount of time.
+            self._pending_join = (session_id, player_id)
         
         elif event.button.id and event.button.id.startswith("answer_"):
             if not self.can_answer or not self.ws_client:
@@ -187,19 +192,48 @@ class StudentTUI(App):
             
             if msg_type == "welcome":
                 self.query_one("#status").update("[yellow]Connected to server...")
+                # If the UI requested a join, send it now.
+                if self._pending_join and self.ws_client:
+                    session_id, player_name = self._pending_join
+                    try:
+                        await self.ws_client.send({
+                            "type": "session.join",
+                            "session_id": session_id,
+                            "name": player_name
+                        })
+                    finally:
+                        self._pending_join = None
             
             elif msg_type == "session.joined":
                 self.session_id = msg.get("session_id", "")
                 self.query_one("#status").update(f"[green]Joined session: {self.session_id}")
+                # Hide/remove the join form to free screen real-estate
+                try:
+                    self.query_one("#session_id", Input).remove()
+                    self.query_one("#player_id", Input).remove()
+                    self.query_one("#join", Button).remove()
+                except Exception:
+                    pass
             
             elif msg_type == "lobby.update":
-                # Show lobby state
+                # Update players table and lobby prompt
                 players = msg.get("players", [])
                 player_names = ", ".join(p['name'] for p in players)
                 self.query_one("#prompt").update(
                     f"Lobby - Waiting for host to start...\n"
                     f"Players: {player_names or 'None'}"
                 )
+                # Populate players listing (name · score · latency)
+                try:
+                    players_container = self.query_one("#players", Vertical)
+                    players_container.remove_children()
+                    for p in players:
+                        lat = p.get("latency_ms")
+                        lat_s = f"{lat} ms" if lat is not None else "-"
+                        score = p.get("score", 0)
+                        players_container.mount(Static(f"{p.get('name')} — {score} pts — {lat_s}"))
+                except Exception:
+                    pass
             
             elif msg_type == "kicked":
                 self.query_one("#status").update("[red]You were kicked from the session")
@@ -277,9 +311,12 @@ class StudentTUI(App):
             self.ws_client.stop()
             if self.ws_worker and not self.ws_worker.is_finished:
                 try:
-                    await asyncio.wait_for(self.ws_worker.stop(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    pass  # Worker didn't stop in time, but we're exiting anyway
+                    # Prefer cooperative cancellation used elsewhere (host_tui)
+                    self.ws_worker.cancel()
+                    # Give the worker a moment to unwind
+                    await asyncio.sleep(0.1)
+                except Exception:
+                    pass
     
     def _update_options(self, enable_buttons=True):
         """Update the options display."""
