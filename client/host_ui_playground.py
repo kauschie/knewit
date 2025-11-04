@@ -22,17 +22,18 @@ methods (update_players, set_quiz_preview) you can later call from
 from __future__ import annotations
 
 import random
+from datetime import datetime
 from typing import List
 from dataclasses import dataclass
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, Input
-from textual.containers import Horizontal, Vertical
+from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label
+from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
 from textual.message import Message
 from textual.app import App, ComposeResult
-from textual.containers import Container, HorizontalGroup, VerticalScroll, Vertical
 from textual.widget import Widget
 from textual import events
 import secrets
+
 
 # ---- shared model -----------------------------------------------------------
 @dataclass
@@ -134,30 +135,193 @@ class QuizPreview(Static):
         first = self.questions[0] if self.questions else ""
         return f"Quiz: {self.title}\nQuestions: {qcount}\n\nPreview:\n{first}".strip()
 
+
+
+
+
 class MainScreen(Screen):
-    """Screen for host to enter session details and login."""
+    """Host main screen."""
+
+    CSS = """
+    #main-container { height: 1fr; }
+    #left-column { width: 3fr; height: 1fr; padding: 0; border: tall $panel; }
+    #right-tabs  { width: 2fr; height: 1fr; padding: 1; border: tall $panel; }
+
+    .quiz-question { height: 4fr; background: red; }
+    .controls-area { height: 1fr; background: blue; }
+    .graphs-area   { height: 3fr; background: green; }
+
+    #leaderboard-area, #user-controls-area, #chat-area { height: 1fr; }
+
+    /* Let widgets fill their grid cells */
+    .uc-name, .uc-kick, .uc-mute { width: 100%; }
+
+    /* Optional cosmetics */
+    .uc-name { text-align: center; height:1fr;}
+    .uc-kick { background: darkred;  color: white; }
+    .uc-mute { background: goldenrod; color: black; }
+
+    .uc-row {
+        layout: grid;
+        grid-size: 3;                   /* 3 columns */
+        grid-columns: 3fr 1fr 1fr;      /* 3/5, 1/5, 1/5 => ~75%, 12.5%, 12.5% */
+        height: 3;
+        width: 100%;
+        align-vertical: middle;         /* center buttons/text vertically */
+    }
     
+    Label {
+        height: 1fr;
+        content-align: center middle;
+    }
+    
+    """
+
     BINDINGS = [
         ("a", "add_player", "Add player"),
         ("r", "remove_player", "Remove player"),
+        ("n", "next_round", "New round column"),  # demo: add a per-round column
+        ("c", "demo_chat", "Append chat line"),   # demo: add chat text
     ]
 
-    def compose(self) -> ComposeResult:
-        yield Static("Host Login Screen - under construction")
+    def __init__(self) -> None:
+        super().__init__()
+        self.players: list[dict] = []       # [{player_id, name, score, ping}]
+        self.round_idx: int = 0             # track dynamic round columns
 
-        # Bindings / actions
+        # refs populated on_mount
+        self.leaderboard: DataTable | None = None
+        self.user_controls: ListView | None = None
+        self.chat_log: Log | None = None
+        self.extra_cols: list[str] = []  # track dynamic round columns
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
+        with Horizontal(id="main-container"):
+            with Vertical(id="left-column"):
+                yield Static("Quiz Question Area", classes="quiz-question")
+                yield Static("Controls Area", classes="controls-area")
+                yield Static("Graphs Area", classes="graphs-area")
+
+            with TabbedContent(initial="leaderboard", id="right-tabs"):
+                with TabPane("Leaderboard", id="leaderboard"):
+                    # DataTable gives both vertical & horizontal scrolling
+                    yield DataTable(id="leaderboard-area")
+                with TabPane("User Controls", id="user-controls"):
+                    # A scrollable list of rows; each row holds name + buttons
+                    yield ListView(id="user-controls-area")
+                with TabPane("Chat", id="chat"):
+                    # Log widget trims to max_lines and auto-scrolls
+                    yield Log(id="chat-area", max_lines=50, highlight=False, auto_scroll=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        # cache refs
+        self.leaderboard = self.query_one("#leaderboard-area", DataTable)
+        self.user_controls = self.query_one("#user-controls-area", ListView)
+        self.chat_log = self.query_one("#chat-area", Log)
+
+        # Setup leaderboard columns
+        assert self.leaderboard is not None
+        self.leaderboard.cursor_type = "row"   # nicer selection
+        self.leaderboard.add_columns("Ping", "Name", "Total")
+        self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
+
+        # Seed a few players for demo
+        for _ in range(3):
+            self.action_add_player()
+
+        # Seed chat
+        self.append_chat("System ready. Press [n] to add a round column; [c] to append chat.")
+
+    # ---------- Leaderboard helpers ----------
+
+    def _rebuild_leaderboard(self) -> None:
+        if not self.leaderboard:
+            return
+        dt = self.leaderboard
+        dt.clear(columns=True)
+        
+        # 1) Ensure base columns exist exactly once
+        base_cols = ["Ping", "Name", "Total"]
+        round_cols = [f"R{i}" for i in range(1, self.round_idx + 1)]
+        dt.add_columns(*base_cols, *round_cols)
+
+
+        # 4) Re-add rows from the model
+        for p in self.players:
+            row = [str(p.get("ping", "-")), p["name"], str(p.get("score", 0))]
+            row.extend(str(v) for v in p.get("rounds", []))
+            dt.add_row(*row)
+
+
+
+    def _rebuild_user_controls(self) -> None:
+        try:
+            lv = self.query_one("#user-controls-area", ListView)
+        except Exception:
+            return  # tab not mounted yet
+
+        lv.clear()
+
+        for p in self.players:
+            pid = p["player_id"]
+
+            row = Container(
+                            Label(p["name"], classes="uc-name"),
+                            Button("Kick", id=f"kick-{pid}", classes="uc-kick"),
+                            Button("Mute", id=f"mute-{pid}", classes="uc-mute"),
+                            classes="uc-row",
+                        )
+
+            lv.append(ListItem(row))
+
+
+
+    # ---------- Actions ----------
     def action_add_player(self) -> None:
-        pid = f"p{random.randint(1000,9999)}"
-        name = random.choice(["alice", "bob", "carol", "dave", "eve"]) + str(random.randint(1,9))
-        self.players.append({"player_id": pid, "name": name})
-        self.update_players(self.players)
+        pid = f"p{random.randint(1000, 9999)}"
+        name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
+        self.players.append({"player_id": pid, "name": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
+        self._rebuild_leaderboard()
+        self._rebuild_user_controls()
 
     def action_remove_player(self) -> None:
         if self.players:
             self.players.pop()
-            self.update_players(self.players)
+            self._rebuild_leaderboard()
+            self._rebuild_user_controls()
 
 
+    def action_next_round(self) -> None:
+        self.round_idx += 1
+        for p in self.players:
+            delta = random.randint(0, 10)
+            p["score"] = p.get("score", 0) + delta
+            p.setdefault("rounds", []).append(delta)
+        self._rebuild_leaderboard()
+
+
+
+    def action_demo_chat(self) -> None:
+        self.append_chat(f"[{datetime.now().strftime('%H:%M:%S')}] Host: demo line")
+
+    # ---------- Chat helper ----------
+    def append_chat(self, text: str) -> None:
+        if self.chat_log:
+            self.chat_log.write('\n' + text)
+
+    # ---------- Placeholder handlers for the user control buttons ----------
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        bid = (event.button.id or "")
+        if bid.startswith("kick-"):
+            self.append_chat(f"* Kicked {bid.removeprefix('kick-')}")
+        elif bid.startswith("mute-"):
+            self.append_chat(f"* Toggled mute for {bid.removeprefix('mute-')}")
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        if event.tab.id == "user-controls":
+            self._rebuild_user_controls()
 
 class LoginScreen(Screen):
     """Screen for host to enter session details and login."""
@@ -271,11 +435,11 @@ class LoginScreen(Screen):
         # BorderedInputButtonContainer => #{id}-input
         # BorderedTwoInputContainer   => #{id}-input1 / #{id}-input2
         return {
-            "session_id": self.query_one("#session-inputs-input", Input).value.strip(),
+            "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip(),
-            "server_port": self.query_one("#server-inputs-input2", Input).value.strip(),
-            "host_name":  self.query_one("#host-inputs-input", Input).value.strip(),
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
+            "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }
 
     def _validate(self, v: dict) -> tuple[bool, str]:
@@ -346,6 +510,7 @@ class HostUIPlayground(App):
 
     async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
         # seed some players for the initial view
+        # self.switch_mode("main")
         self.switch_mode("login")
         self.players = [
             {"player_id": "p1001", "name": "mike"},
