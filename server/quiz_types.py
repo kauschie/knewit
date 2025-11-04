@@ -215,10 +215,13 @@ class QuizSession:
 # Global state (in real app, use Redis)
 quiz_sessions: Dict[str, QuizSession] = {}
 
-def create_session(host_id: str) -> QuizSession:
+def create_session(host_id: str, session_id: str | None = None) -> QuizSession:
     """Create a new quiz session with a unique ID."""
-    # session_id = secrets.token_urlsafe(6)  # Shorter, easier to share
-    session_id = "demo"  # For testing purposes
+    if session_id is None:
+        session_id = secrets.token_urlsafe(6)  # Shorter, easier to share
+    elif session_id in quiz_sessions:
+        raise ValueError("Session ID already exists.")
+    
     session = QuizSession(
         id=session_id,
         host_id=host_id
