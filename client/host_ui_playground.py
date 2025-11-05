@@ -26,14 +26,26 @@ from datetime import datetime
 from typing import List
 from dataclasses import dataclass
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label
+from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label, Digits
 from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
 from textual.message import Message
 from textual.app import App, ComposeResult
 from textual.widget import Widget
-from textual import events
+from textual.reactive import reactive
+from textual import events, on, work
+from textual_plotext import PlotextPlot
 import secrets
+import logging
+from quiz_selector import QuizSelector, logger
+from quiz_preview import QuizPreview
+from rich.table import Table
 
+THEME = "flexoki"
+
+# logging.basicConfig(filename='logs/host_ui_playground.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+# logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.debug("Host UI Playground module loaded.")
 
 # ---- shared model -----------------------------------------------------------
 @dataclass
@@ -42,6 +54,95 @@ class SessionModel:
     host_name: str
     server_ip: str
     server_port: int
+    
+    
+class _BasePlot(PlotextPlot):
+    _pending: bool = False
+    
+    def replot(self) -> None:
+        if self._pending:
+            return
+        self._pending = True
+        
+        def _do():
+            self._pending = False
+            self._draw()
+            self.refresh()
+            
+        # run after the *next* refresh/layout
+        self.call_after_refresh(_do)
+    
+    # redraw on resize
+    def on_resize(self) -> None:
+        self.replot()
+        
+class AnswerHistogramPlot(_BasePlot):
+    """Plot showing answer distribution histogram."""
+    labels = reactive(tuple(), init=False) # e.g., ("A", "B", "C", "D", "E")
+    counts = reactive(tuple(), init=False) # e.g., (5, 10, 3, 0, 2), same length as labels
+    
+    def on_mount(self) -> None:
+        self.labels = tuple()
+        self.counts = tuple()
+        self.replot()
+        
+    def reset_question(self, labels: list[str]) -> None:
+        self.labels = tuple(labels)
+        self.counts = tuple(0 for _ in labels)
+        
+    def bump(self, idx: int) -> None:
+        if 0 <= idx < len(self.counts):
+            counts = list(self.counts)
+            counts[idx] += 1
+            self.counts = tuple(counts)
+
+    def watch_labels(self, _old: tuple, new: tuple) -> None:
+        self.replot()
+
+    def watch_counts(self, _old: tuple, new: tuple) -> None:
+        self.replot()
+
+    def _draw(self) -> None:
+        plt = self.plt
+        plt.clear_data()
+        plt.title("Current Question - Answers")
+        plt.xlabel("Choice")
+        plt.ylabel("Count")
+        if not self.labels or not self.counts:
+            return
+        plt.bar(list(self.labels), list(self.counts))
+        plt.ylim(0, max(self.counts) + 1)
+
+class PercentCorrectPlot(_BasePlot):
+    percents = reactive(tuple(), init=False) # e.g., (50.0, 75.0, 100.0), one per question
+
+    def on_mount(self) -> None:
+        self.percents = tuple()
+        self.replot()
+    
+    # public API
+    def append_result(self, percent_correct: float) -> None:
+        p = max(0.0, min(100.0, percent_correct))
+        self.percents = (*self.percents, p) # should trigger watch method
+        
+    def set_series(self, percents: list[float]) -> None:
+        self.percents = tuple(max(0.0, min(100.0, float(p))) for p in percents)
+
+    # watcher
+    def watch_percents(self, _old, _new) -> None:
+        self.replot()
+    
+    def _draw(self) -> None:
+        plt = self.plt
+        plt.clear_data()
+        n = len(self.percents)
+        xs = list(range(1, n + 1))
+        if xs:
+            plt.plot(xs, list(self.percents), marker="hd")
+        plt.title("% Correct by Question")
+        plt.xlabel("Question #")
+        plt.ylabel("% Correct")
+        plt.ylim(0, 100)
 
 class BorderedInputButtonContainer(HorizontalGroup):
     """A Container with a border + border title."""
@@ -118,39 +219,221 @@ class PlayerCard(Static):
     def render(self) -> str:
         return f"{self.player_name} ({self.player_id})"
 
-
-class QuizPreview(Static):
-    def __init__(self) -> None:
-        super().__init__(classes="quiz-preview")
-        self.title = "No quiz loaded"
-        self.questions = []
-
-    def set_quiz(self, title: str, questions: List[str]) -> None:
-        self.title = title
-        self.questions = questions
-        self.refresh()
-
-    def render(self) -> str:
-        qcount = len(self.questions)
-        first = self.questions[0] if self.questions else ""
-        return f"Quiz: {self.title}\nQuestions: {qcount}\n\nPreview:\n{first}".strip()
+class TimeDisplay(Digits):
+    """A widget to display time remaining."""
 
 
+import string
+from typing import Any, Dict, List, Optional
 
+
+# class QuizPreview(VerticalScroll):
+#     """Scrollable preview of the selected quiz (title, questions, options)."""
+
+#     # You can tweak spacing/fonts here without touching your screen CSS
+#     DEFAULT_CSS = """
+#     QuizPreview {
+#         padding: 1 2;
+#         background: $panel;
+#         border: tall $background 80%;
+#         height: 1fr;
+#         content-align: left middle;
+#     }
+
+#     .qp-title {
+#         padding: 0 0 1 0;
+#     }
+
+#     .qp-subtitle {
+#         color: $text-muted;
+#         padding-bottom: 1;
+#     }
+
+#     .qp-qblock {
+#         padding: 1 0;
+#         border-bottom: solid $surface 10%;
+#     }
+
+#     .qp-qprompt {
+#         text-style: bold;
+#         padding-bottom: 1;
+#     }
+
+#     .qp-option-row {
+#         padding: 0;
+#     }
+
+#     .qp-letter {
+#         width: 3;
+#         text-style: bold;
+#     }
+
+#     .qp-empty {
+#         color: $text-muted;
+#         padding: 2 0;
+#     }
+#     """
+
+#     quiz: Optional[Dict[str, Any]] = reactive(None)
+
+#     def set_quiz(self, quiz: Optional[Dict[str, Any]]) -> None:
+#         """Public API: call this to (re)render the preview."""
+#         self.quiz = quiz  # triggers watch_quiz
+
+#     # ---- reactive hook -----------------------------------------------------
+
+#     def watch_quiz(self, quiz: Optional[Dict[str, Any]]) -> None:
+#         self._render_quiz()
+
+#     # ---- lifecycle ---------------------------------------------------------
+
+#     def on_mount(self) -> None:
+#         # Initial placeholder render
+#         self._render_quiz()
+
+#     # ---- render helpers ----------------------------------------------------
+
+#     def _render_quiz(self) -> None:
+#         self.remove_children()
+
+#         if not self.quiz:
+#             self.mount
+#             self.mount(Static("No quiz selected.", classes="qp-empty"))
+#             return
+
+#         title = self.quiz.get("title", "Untitled Quiz")
+#         questions: List[Dict[str, Any]] = self.quiz.get("questions", [])
+
+#         # Header
+#         self.mount(Static(f"[b]{title}[/b]", classes="qp-title"))
+#         self.mount(
+#             Static(
+#                 f"{len(questions)} question{'s' if len(questions)!=1 else ''}",
+#                 classes="qp-subtitle",
+#             )
+#         )
+
+#         # Questions
+#         for i, q in enumerate(questions, 1):
+#             self._mount_question_block(i, q)
+
+#         # Ensure layout updates once after mounting everything
+#         self.refresh(layout=True)
+
+#     def _mount_question_block(self, index: int, q: Dict[str, Any]) -> None:
+#         """Create a single question block with its options."""
+
+#         prompt = q.get("prompt", "(no prompt)")
+#         options: List[str] = q.get("options", [])
+#         letters = self._letters(len(options))
+
+#         q_block = Vertical(classes="qp-qblock")
+
+#         # Prompt
+#         q_block.mount(
+#             Static(f"{index}. {prompt}", classes="qp-qprompt")
+#         )
+
+#         # Options
+#         for letter, text in zip(letters, options):
+#             row = Horizontal(classes="qp-option-row")
+#             row.mount(Static(f"{letter}.", classes="qp-letter"))
+#             row.mount(Static(text, expand=True))
+#             q_block.mount(row)
+
+#         self.mount(q_block)
+
+#     @staticmethod
+#     def _letters(n: int) -> List[str]:
+#         return list(string.ascii_uppercase[: max(0, n)])
 
 
 class MainScreen(Screen):
     """Host main screen."""
 
     CSS = """
-    #main-container { height: 1fr; }
-    #left-column { width: 3fr; height: 1fr; padding: 0; border: tall $panel; }
-    #right-tabs  { width: 2fr; height: 1fr; padding: 1; border: tall $panel; }
+    #main-container { 
+        height: 100%; 
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background: $background;
+    }
+    #left-column { 
+        width: 3fr; 
+        height: 1fr; 
+        padding: 0; 
+        margin: 0;
+        border: tall $panel;
+    }
 
-    .quiz-question { height: 4fr; background: red; }
-    .controls-area { height: 1fr; background: blue; }
-    .graphs-area   { height: 3fr; background: green; }
+    #quiz-preview { 
+        height: 4fr; 
+        # background: red;
+        content-align: center middle;
+    }
+    
+    #graphs-area { 
+        height: 3fr;
+        width: 100%;
+        background: green; 
+    }
+    
+    #graphs-area PlotextPlot {
+        width:1fr;
+        height: 1fr;
+    }
+        
+    #session-controls-area { 
+        height: 1fr;  
+        layout: grid;
+        grid-gutter: 0 2;
+        margin: 0 2 0 2;
+        background: $background;
+    }
+    
+    #load-quiz {
+        
+    }
+    
+    .two-grid {
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        # margin: 0 3 0 3;
+        # grid-gutter: 0 3;
+    }
+    
+    .three-grid {
+        grid-size: 3;
+        grid-columns: 1fr 1fr 1fr;
+        # grid-gutter: 0 2;
+        # margin: 0 2 0 2;
+    }
 
+    # Buttons in session-controls-area fill equally
+    #session-controls-area Button { 
+        width: 100%;
+        height: 100%;
+        content-align: center middle;
+        border: round $accent;
+    }
+
+    TimeDisplay {
+        width: 100%;
+        height: 100%;
+        content-align: center middle;
+        border: round $accent;
+        text-align: center;
+        # text-style: bold;
+        background: $boost;
+        }
+
+    #right-tabs  { 
+        width: 2fr; 
+        height: 1fr; 
+        padding: 1; 
+        border: tall $panel; 
+    }
     #leaderboard-area, #user-controls-area, #chat-area { height: 1fr; }
 
     /* Let widgets fill their grid cells */
@@ -174,6 +457,16 @@ class MainScreen(Screen):
         height: 1fr;
         content-align: center middle;
     }
+
+    Button {
+        content-align: center middle;
+        width: 100%;
+        height: 1fr;
+    }
+    
+    .hidden {
+        display: none;
+    }
     
     """
 
@@ -194,14 +487,29 @@ class MainScreen(Screen):
         self.user_controls: ListView | None = None
         self.chat_log: Log | None = None
         self.extra_cols: list[str] = []  # track dynamic round columns
+        self.create_quiz_btn: Button | None = None
+        self.load_quiz_btn: Button | None = None
+        self.start_btn: Button | None = None
+        self.nq_btn: Button | None = None
+        self.end_quiz_btn: Button | None = None
+        self.selected_quiz: dict | None = None
+        self.session_controls_area: Horizontal | None = None
+        self.quiz_preview: QuizPreview | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
         with Horizontal(id="main-container"):
             with Vertical(id="left-column"):
-                yield Static("Quiz Question Area", classes="quiz-question")
-                yield Static("Controls Area", classes="controls-area")
-                yield Static("Graphs Area", classes="graphs-area")
+                yield QuizPreview(id="quiz-preview")
+                with Horizontal(id="session-controls-area", classes="two-grid"):
+                    yield Button("Create Quiz", id="create-quiz")
+                    yield Button("Load Quiz", id="load-quiz")
+                    yield Button("Start Quiz", id="start-quiz", classes="hidden")
+                    yield Button("Next Question", id="next-question", classes="hidden")
+                    yield Button("End Quiz", id="end-quiz", classes="hidden")
+                with Horizontal(id="graphs-area"):
+                    yield AnswerHistogramPlot(id="answers-plot")
+                    yield PercentCorrectPlot(id="percent-plot")
 
             with TabbedContent(initial="leaderboard", id="right-tabs"):
                 with TabPane("Leaderboard", id="leaderboard"):
@@ -220,12 +528,20 @@ class MainScreen(Screen):
         self.leaderboard = self.query_one("#leaderboard-area", DataTable)
         self.user_controls = self.query_one("#user-controls-area", ListView)
         self.chat_log = self.query_one("#chat-area", Log)
+        self.create_quiz_btn = self.query_one("#create-quiz", Button)
+        self.load_quiz_btn = self.query_one("#load-quiz", Button)
+        self.start_btn = self.query_one("#start-quiz", Button)
+        self.nq_btn = self.query_one("#next-question", Button)
+        self.end_quiz_btn = self.query_one("#end-quiz", Button)
+        self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
+        self.quiz_preview = self.query_one(QuizPreview)
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
         self.leaderboard.cursor_type = "row"   # nicer selection
         self.leaderboard.add_columns("Ping", "Name", "Total")
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
+        self.theme = THEME          
 
         # Seed a few players for demo
         for _ in range(3):
@@ -277,6 +593,73 @@ class MainScreen(Screen):
             lv.append(ListItem(row))
 
 
+# --------- quiz internals ---------
+    def _initialize_quiz(self, quiz: dict) -> None:
+        if not quiz:
+            self.append_chat("[red]No quiz data provided to initialize.")
+            logger.error("No quiz data provided to initialize.")
+        self.selected_quiz = quiz
+        
+        #1 setup preview panel
+        if self.quiz_preview:
+            logger.debug(f"Setting quiz preview: quiz:{quiz}")
+            self.quiz_preview.set_quiz(quiz)
+        
+        #2 reset round state + leaderboard columns
+        self.round_idx = 0
+        for p in self.players:
+            p["score"] = 0
+            p["rounds"] = []
+        self._rebuild_leaderboard()
+        
+        #3 reset plots
+        self.query_one("#percent-plot", PercentCorrectPlot).set_series([])
+        default_labels = ["A", "B", "C", "D"] # change as needed to be the first values?
+        self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(default_labels)
+
+        #4 enable start quiz and next buttons
+        self.toggle_buttons()
+
+
+    # ---------- Host Control Actions ----------
+    
+    def start_quiz(self) -> None:
+        """Prepare state for Q0 and show 'waiting for answers'."""
+        if not self.selected_quiz:
+            return
+        # If your quiz has options per question, set labels from question 0.
+        labels = ["A", "B", "C", "D"]  # TODO: derive from self.selected_quiz
+        self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
+        # Optional: update a label like "Q 1 / N" here
+
+    def begin_question(self, q_idx: int) -> None:
+        """Switch plots/UI to the given question."""
+        labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
+        self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
+        # Also clear any per-question timers, badges, etc.
+
+    def tally_answer(self, choice_index: int) -> None:
+        """Increment histogram as answers arrive in real time."""
+        answers_plot = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot)
+        if 0 <= choice_index < len(answers_plot.counts):
+            new_counts = list(answers_plot.counts)
+            new_counts[choice_index] += 1
+            answers_plot.set_counts(new_counts)
+
+    def end_question(self, q_idx: int, correct: bool, percent_correct: float) -> None:
+        """Close the question: freeze histogram and append % correct."""
+        pc_plot = self.query_one("#percent-plot", expect_type=PercentCorrectPlot)
+        pc_plot.set_series([*pc_plot.percents, percent_correct])
+        # Update leaderboard totals if you score per question here.
+        self._rebuild_leaderboard()
+    
+    def end_quiz(self) -> None:
+        """Wrap up the quiz."""
+        self.append_chat("* Quiz ended.")
+        self.toggle_buttons()
+
+
+
 
     # ---------- Actions ----------
     def action_add_player(self) -> None:
@@ -301,8 +684,6 @@ class MainScreen(Screen):
             p.setdefault("rounds", []).append(delta)
         self._rebuild_leaderboard()
 
-
-
     def action_demo_chat(self) -> None:
         self.append_chat(f"[{datetime.now().strftime('%H:%M:%S')}] Host: demo line")
 
@@ -312,16 +693,46 @@ class MainScreen(Screen):
             self.chat_log.write('\n' + text)
 
     # ---------- Placeholder handlers for the user control buttons ----------
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    @work
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = (event.button.id or "")
         if bid.startswith("kick-"):
             self.append_chat(f"* Kicked {bid.removeprefix('kick-')}")
         elif bid.startswith("mute-"):
             self.append_chat(f"* Toggled mute for {bid.removeprefix('mute-')}")
+        elif bid.startswith("load-quiz"):
+            self.selected_quiz = await self.app.push_screen_wait(QuizSelector())  # get data
+            self.append_chat(f"* Loaded quiz: {self.selected_quiz['title']}")
+            self._initialize_quiz(self.selected_quiz)
+            # self.toggle_buttons()
+        elif bid == "start-quiz":
+            self.start_quiz()
+        elif bid == "next-question":
+            self.round_idx += 1
+            self.begin_question(self.round_idx - 1)
+        elif bid == "end-quiz":
+            self.end_question
+        elif bid.startswith("create-quiz"):
+            self.append_chat("* Created new quiz selected (not implemented)")
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.tab.id == "user-controls":
             self._rebuild_user_controls()
+
+    def toggle_buttons(self) -> None:
+        """Toggle visibility of quiz control buttons for demo."""
+        
+        # self.create_quiz_btn.toggle_class("hidden", "three-grid", "two-grid")
+        # self.load_quiz_btn.toggle_class("hidden", "three-grid", "two-grid")
+        # self.start_btn.toggle_class("hidden", "two-grid", "three-grid")
+        # self.nq_btn.toggle_class("hidden", "two-grid", "three-grid")
+        # self.end_quiz_btn.toggle_class("hidden", "two-grid", "three-grid")
+        self.create_quiz_btn.toggle_class("hidden")
+        self.load_quiz_btn.toggle_class("hidden")
+        self.start_btn.toggle_class("hidden")
+        self.nq_btn.toggle_class("hidden")
+        self.end_quiz_btn.toggle_class("hidden")
+        self.session_controls_area.toggle_class("two-grid", "three-grid")
 
 class LoginScreen(Screen):
     """Screen for host to enter session details and login."""
@@ -464,6 +875,13 @@ class LoginScreen(Screen):
 
 class HostUIPlayground(App):
 
+
+    CSS = """
+    Screen {
+        background: $background;
+        }
+    """
+
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("tab", "focus_next", "Focus next"),
@@ -474,13 +892,13 @@ class HostUIPlayground(App):
     MODES = {
         "login": LoginScreen,
         "main": MainScreen,
+        # "quiz_selector": QuizSelector
     }
     
     def __init__(self) -> None:
         super().__init__()
         self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
-        self.quiz_preview: QuizPreview | None = None
 
 
     # Small API points to be used later when wiring event handlers
@@ -499,27 +917,22 @@ class HostUIPlayground(App):
             # mount directly into the scroll container
             self.player_list_container.mount(card)
 
-    def set_quiz_preview(self, title: str, questions: List[str]) -> None:
-        if self.quiz_preview:
-            self.quiz_preview.set_quiz(title, questions)
-
     # Bindings / actions
 
     def action_toggle_dark(self) -> None:
-        self.theme = "textual-dark" if self.theme != "textual-dark" else "textual-light"
+        self.theme = THEME if self.theme != THEME else "nord-light"
 
     async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
         # seed some players for the initial view
-        # self.switch_mode("main")
-        self.switch_mode("login")
         self.players = [
             {"player_id": "p1001", "name": "mike"},
             {"player_id": "p1002", "name": "amy"},
         ]
         self.update_players(self.players)
         # sample quiz
-        self.set_quiz_preview("Demo Quiz", ["What is 2+2?", "What is the capital of France?"])
-        self.theme = "textual-dark"
+        self.theme = THEME
+        self.switch_mode("login")
+        # self.switch_mode("main")
 
 if __name__ == "__main__":
     HostUIPlayground().run()
