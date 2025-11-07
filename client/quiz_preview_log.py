@@ -8,6 +8,7 @@ import textwrap
 from textual.reactive import reactive
 from textual.widgets import RichLog
 from rich.text import Text
+from common import logger
 
 
 class QuizPreviewLog(RichLog):
@@ -23,20 +24,21 @@ class QuizPreviewLog(RichLog):
         kwargs.setdefault("wrap", True)
         kwargs.setdefault("auto_scroll", False)
         kwargs.setdefault("highlight", False)
-        # Don't set max_lines so preview isn't trimmed (or set a big number if you prefer)
         super().__init__(*args, **kwargs)
-        # precomputed layout info (question index -> logical start line)
-        self._question_start_line = {}
-        self._total_lines = 0
-        self._last_width = 0
+        self.already_scrolled = True
+
 
     # ---- Public API --------------------------------------------------------
 
     def set_quiz(self, quiz: Optional[Dict[str, Any]]) -> None:
+        self.set_current_question(0)
         self.quiz = quiz   # triggers re-render via watch
 
     def set_current_question(self, idx: Optional[int]) -> None:
         self.current_q = idx
+        if self.already_scrolled is True:
+            logger.debug("Current question changed; resetting already_scrolled to False")
+            self.already_scrolled = False
 
     def set_show_answers(self, show: bool) -> None:
         self.show_answers = show
@@ -52,134 +54,16 @@ class QuizPreviewLog(RichLog):
     # ---- Reactives ---------------------------------------------------------
 
     def watch_quiz(self, _: Optional[Dict[str, Any]]) -> None:
-        width = max(1, getattr(self.size, "width", 80))
-        self._compute_layout(width)
         self._render_all()
 
     def watch_current_q(self, _: Optional[int]) -> None:
-        width = max(1, getattr(self.size, "width", 80))
-        self._compute_layout(width)
         self._render_all()
 
-    # ---- Layout helpers --------------------------------------------------
-
-    def _count_wrapped_lines(self, text: str, width: int) -> int:
-        """Estimate the number of wrapped terminal lines for `text` at `width`.
-
-        This uses textwrap.wrap as a lightweight approximation; it is fast and
-        usually accurate for plain text when `wrap=True` on the log.
-        """
-        if width <= 0:
-            width = 80
-        wrapped = textwrap.wrap(text, width=width) or [""]
-        return max(1, len(wrapped))
-
-    def _compute_layout(self, width: int) -> None:
-        """Compute logical start line for each question and total logical lines.
-
-        This does not write to the widget; it only measures how many wrapped
-        lines each piece of text will occupy so we can scroll to a question
-        later without re-wrapping during render.
-        """
-        self._question_start_line = {}
-        total = 0
-
-        if not self.quiz:
-            self._total_lines = 0
-            self._last_width = width
-            return
-
-        questions: List[Dict[str, Any]] = self.quiz.get("questions", [])
-
-        # Title area
-        title = self.quiz.get("title", "Untitled Quiz")
-        total += self._count_wrapped_lines(title, width)
-        info = f"{len(questions)} question{'s' if len(questions) != 1 else ''}"
-        total += self._count_wrapped_lines(info, width)
-        total += 1  # blank line
-
-        # Questions
-        for i, q in enumerate(questions):
-            # record starting logical line for this question
-            self._question_start_line[i] = total
-
-            prompt = q.get("prompt", "(no prompt)")
-            prefix = "▶ " if (self.current_q is not None and i == self.current_q) else ""
-            header_text = prefix + f"Q{i+1}. " + prompt
-            total += self._count_wrapped_lines(header_text, width)
-
-            opts: List[str] = q.get("options", [])
-            correct = q.get("correct_idx", None)
-            for j, opt in enumerate(opts):
-                letter = string.ascii_uppercase[j] if j < 26 else str(j+1)
-                line_text = "  " + f"{letter}. " + opt
-                if self.show_answers and correct is not None and j == correct and i <= (self.current_q or -1):
-                    line_text += "  ✅"
-                total += self._count_wrapped_lines(line_text, width)
-
-            total += 1  # blank separator
-
-        self._total_lines = total
-        self._last_width = width
-
-    def _scroll_to_current(self) -> None:
-        """Scroll so the current question is visible (with one-line context).
-
-        We try a fraction-based scroll helper first, then fall back to coordinate
-        based methods. Uses the precomputed `_question_start_line` and
-        `_total_lines`.
-        """
-        if self.current_q is None:
-            return
-        start_line = self._question_start_line.get(self.current_q)
-        if start_line is None:
-            return
-
-        target_line = max(0, start_line - 1)
-        frac = target_line / max(1, self._total_lines)
-
-        # Prefer a fraction-based API if available
-        if hasattr(self, "scroll_to_fraction"):
-            try:
-                self.scroll_to_fraction(frac)
-                return
-            except Exception:
-                pass
-
-        # Fallback: try scroll_to(y) using virtual/content height if available
-        try:
-            height = getattr(self, "virtual_size", None)
-            if height:
-                h = getattr(height, "height", None) or (height[1] if isinstance(height, (tuple, list)) else None)
-            else:
-                h = getattr(self.size, "height", None) or 0
-            if h:
-                y = int(frac * max(1, h))
-                self.scroll_to(y)
-                return
-        except Exception:
-            pass
-
-        # Last-resort: scroll to end/home as appropriate
-        try:
-            if hasattr(self, "scroll_to_end"):
-                self.scroll_to_end()
-            elif hasattr(self, "scroll_end"):
-                self.scroll_end()
-        except Exception:
-            pass
-
     def watch_show_answers(self, _: bool) -> None:
-        width = max(1, getattr(self.size, "width", 80))
-        self._compute_layout(width)
         self._render_all()
 
     def on_resize(self, event) -> None:
-        """Recompute layout when the widget is resized."""
-        width = max(1, getattr(self.size, "width", 80))
-        if width != self._last_width:
-            self._compute_layout(width)
-            self._render_all()
+        self._render_all()
 
     # ---- Rendering ---------------------------------------------------------
 
@@ -202,6 +86,9 @@ class QuizPreviewLog(RichLog):
 
         # Questions
         for i, q in enumerate(questions, 1):
+            if self.current_q is None or i > self.current_q+1:
+                break
+            
             prompt = q.get("prompt", "(no prompt)")
             opts: List[str] = q.get("options", [])
             correct = q.get("correct_idx", None)
@@ -236,15 +123,20 @@ class QuizPreviewLog(RichLog):
 
             self.write(Text(""))  # blank line between questions
 
-        # Keep content anchored to top for preview readability
-        # self.scroll_home()
-        # Ensure we scroll after the next refresh/layout so scroll helpers work
-        try:
-            self.call_after_refresh(self._scroll_to_current)
-        except Exception:
-            # If call_after_refresh isn't available on this Textual version,
-            # try scheduling with a short timeout via post_message or skip.
+        # scroll to the bottom after layout so animation has real geometry
+        if not self.already_scrolled:
             try:
-                self._scroll_to_current()
+                # do it real slowly
+                
+                # self.call_after_refresh(lambda: self.scroll_end(animate=True, duration=5, easing="out_cubic"))
+                self.call_after_refresh(lambda: self.scroll_end(animate=True, speed=5, easing="out_cubic"))
+                logger.debug("Scheduled scroll to end after refresh.")
+                
             except Exception:
-                pass
+                # fallback if call_after_refresh isn't available in this Textual
+                # version — call directly (may be instantaneous)
+                logger.debug("call_after_refresh not available; scrolling directly")
+                self.scroll_end(animate=True, duration=5, easing="out_cubic")
+            finally:
+                logger.debug("Setting already_scrolled to True after scrolling.")
+                self.already_scrolled = True

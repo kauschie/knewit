@@ -37,19 +37,14 @@ from textual.widget import Widget
 from textual.reactive import reactive
 from textual import events, on, work
 from textual_plotext import PlotextPlot
+from common import logger
 import secrets
-import logging
-from quiz_selector import QuizSelector, logger
+from quiz_selector import QuizSelector
 from quiz_preview_log import QuizPreviewLog
 from chat import MarkdownChat
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 20
-
-# logging.basicConfig(filename='logs/host_ui_playground.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-# logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.debug("Host UI Playground module loaded.")
 
 # ---- shared model -----------------------------------------------------------
 @dataclass
@@ -574,7 +569,6 @@ class MainScreen(Screen):
             logger.debug(f"Setting quiz preview: quiz:{self.selected_quiz}")
             self.append_chat(user="Server", msg=f"Quiz loaded: [b]{self.selected_quiz.get('title','(untitled)')}[/b]")
             self.quiz_preview.set_quiz(self.selected_quiz)
-            self.quiz_preview.set_current_question(0)  # highlight Q1
             self.quiz_preview.set_show_answers(False)
             
         
