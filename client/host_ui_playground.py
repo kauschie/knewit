@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import random
 from datetime import datetime
+from collections import deque
+
 from typing import List
 from dataclasses import dataclass
 from textual.screen import Screen
@@ -38,9 +40,10 @@ import secrets
 import logging
 from quiz_selector import QuizSelector, logger
 from quiz_preview import QuizPreview
-from rich.table import Table
+from chat import MarkdownChat
 
 THEME = "flexoki"
+MAX_CHAT_MESSAGES = 20
 
 # logging.basicConfig(filename='logs/host_ui_playground.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 # logger = logging.getLogger(__name__)
@@ -223,10 +226,6 @@ class TimeDisplay(Digits):
     """A widget to display time remaining."""
 
 
-import string
-from typing import Any, Dict, List, Optional
-
-
 # class QuizPreview(VerticalScroll):
 #     """Scrollable preview of the selected quiz (title, questions, options)."""
 
@@ -357,14 +356,14 @@ class MainScreen(Screen):
         width: 100%;
         margin: 0;
         padding: 0;
-        background: $background;
+        # background: $background;
     }
     #left-column { 
-        width: 3fr; 
+        width: 5fr; 
         height: 1fr; 
         padding: 0; 
         margin: 0;
-        border: tall $panel;
+        outline: tall $panel;
     }
 
     #quiz-preview { 
@@ -375,8 +374,9 @@ class MainScreen(Screen):
     
     #graphs-area { 
         height: 3fr;
+        min-height: 10;
         width: 100%;
-        background: green; 
+        # background: green; 
     }
     
     #graphs-area PlotextPlot {
@@ -385,11 +385,12 @@ class MainScreen(Screen):
     }
         
     #session-controls-area { 
-        height: 1fr;  
+        height: 7%;  
         layout: grid;
         grid-gutter: 0 2;
-        margin: 0 2 0 2;
-        background: $background;
+        # margin: 0 2 0 2;
+        background: $surface;
+        min-height: 3;
     }
     
     #load-quiz {
@@ -415,34 +416,75 @@ class MainScreen(Screen):
         width: 100%;
         height: 100%;
         content-align: center middle;
-        border: round $accent;
+        outline: round $accent;
+        min-height: 3;
     }
 
     TimeDisplay {
         width: 100%;
         height: 100%;
         content-align: center middle;
-        border: round $accent;
+        outline: round $accent;
         text-align: center;
         # text-style: bold;
         background: $boost;
         }
 
-    #right-tabs  { 
-        width: 2fr; 
-        height: 1fr; 
-        padding: 1; 
-        border: tall $panel; 
+    #right-tabs {
+        width: 4fr;
+        height: 100%;
+        # border: tall $panel;
+        margin: 0 0;
+        padding: 0 0;
+        box-sizing: border-box;
+        # border: tall red;
     }
-    #leaderboard-area, #user-controls-area, #chat-area { height: 1fr; }
+
+    #leaderboard,
+    #user-controls,
+    #log,
+    #chat {
+        height: 1fr;
+        width: 1fr;
+    }
+
+    #chat-list {
+        height: 7fr;
+        overflow-x: hidden;
+    }
+
+    /* input row stays visible and un-clipped */
+    #chat-input-row {
+        box-sizing: border-box;
+        layout: horizontal;
+        height: 1fr;
+        min-height: 3;
+        align: center middle;
+    }
+
+    #chat-input {
+        width: 1fr;
+        height: 1fr;
+        box-sizing: border-box;
+        # outline: solid yellow;
+    }
+
+    #chat-send {
+        width: 12;
+        height: 1fr;
+        margin-left: 1;
+        box-sizing: border-box;
+    }
+
+    
 
     /* Let widgets fill their grid cells */
     .uc-name, .uc-kick, .uc-mute { width: 100%; }
 
     /* Optional cosmetics */
-    .uc-name { text-align: center; height:1fr;}
-    .uc-kick { background: darkred;  color: white; }
-    .uc-mute { background: goldenrod; color: black; }
+    .uc-name { text-align: center; height:1fr; }
+    .uc-kick { outline: ascii $warning; height:1fr;}
+    .uc-mute { outline: round $success; height:1fr;}
 
     .uc-row {
         layout: grid;
@@ -451,6 +493,8 @@ class MainScreen(Screen):
         height: 3;
         width: 100%;
         align-vertical: middle;         /* center buttons/text vertically */
+        # border: tall $accent;
+        # padding: 1;
     }
     
     Label {
@@ -474,27 +518,46 @@ class MainScreen(Screen):
         ("a", "add_player", "Add player"),
         ("r", "remove_player", "Remove player"),
         ("n", "next_round", "New round column"),  # demo: add a per-round column
-        ("c", "demo_chat", "Append chat line"),   # demo: add chat text
+        ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
+        ("enter", "send_chat", "Send chat input")
     ]
 
     def __init__(self) -> None:
         super().__init__()
+        # general
         self.players: list[dict] = []       # [{player_id, name, score, ping}]
         self.round_idx: int = 0             # track dynamic round columns
-
+        
+        
         # refs populated on_mount
+        # general
+        self.host_name: str | None = None
+        
+        # panel refs
         self.leaderboard: DataTable | None = None
         self.user_controls: ListView | None = None
-        self.chat_log: Log | None = None
+        self.log_list: Log | None = None
         self.extra_cols: list[str] = []  # track dynamic round columns
+        
+        # session controls
+        self.session_controls_area: Horizontal | None = None
         self.create_quiz_btn: Button | None = None
         self.load_quiz_btn: Button | None = None
         self.start_btn: Button | None = None
         self.nq_btn: Button | None = None
         self.end_quiz_btn: Button | None = None
+        
+        # quiz refs
         self.selected_quiz: dict | None = None
-        self.session_controls_area: Horizontal | None = None
         self.quiz_preview: QuizPreview | None = None
+        
+        # chat refs
+        self.chat_feed: MarkdownChat | None = None
+        self.chat_input: Input | None = None
+        self.chat_send: Button | None = None
+        
+
+        
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
@@ -511,23 +574,33 @@ class MainScreen(Screen):
                     yield AnswerHistogramPlot(id="answers-plot")
                     yield PercentCorrectPlot(id="percent-plot")
 
-            with TabbedContent(initial="leaderboard", id="right-tabs"):
+            with TabbedContent(initial="chat", id="right-tabs"):
                 with TabPane("Leaderboard", id="leaderboard"):
                     # DataTable gives both vertical & horizontal scrolling
                     yield DataTable(id="leaderboard-area")
                 with TabPane("User Controls", id="user-controls"):
                     # A scrollable list of rows; each row holds name + buttons
                     yield ListView(id="user-controls-area")
-                with TabPane("Chat", id="chat"):
+                with TabPane("Log", id="log"):
                     # Log widget trims to max_lines and auto-scrolls
-                    yield Log(id="chat-area", max_lines=50, highlight=False, auto_scroll=True)
+                    yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
+                with TabPane("Chat", id="chat"):
+                    # with Vertical(id="chat-panel"):
+                    # yield Static("Chat Messages:", id="chat-md")
+                    yield MarkdownChat(id="chat-list")
+                    with Horizontal(id="chat-input-row"):
+                        yield Input(placeholder="Type message here... (Enter to send)", id="chat-input")
+                        yield Button("Send", id="chat-send", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
         # cache refs
         self.leaderboard = self.query_one("#leaderboard-area", DataTable)
         self.user_controls = self.query_one("#user-controls-area", ListView)
-        self.chat_log = self.query_one("#chat-area", Log)
+        self.log_list = self.query_one("#log_area", Log)
+        self.chat_feed = self.query_one("#chat-list", MarkdownChat)
+        self.chat_input = self.query_one("#chat-input", Input)
+        self.chat_send = self.query_one("#chat-send", Button)
         self.create_quiz_btn = self.query_one("#create-quiz", Button)
         self.load_quiz_btn = self.query_one("#load-quiz", Button)
         self.start_btn = self.query_one("#start-quiz", Button)
@@ -535,6 +608,8 @@ class MainScreen(Screen):
         self.end_quiz_btn = self.query_one("#end-quiz", Button)
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
         self.quiz_preview = self.query_one(QuizPreview)
+        self.host_name = self.app.login_info.get("host_name", "Host") if self.app.login_info else "Host"
+
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
@@ -548,8 +623,8 @@ class MainScreen(Screen):
             self.action_add_player()
 
         # Seed chat
-        self.append_chat("System ready. Press [n] to add a round column; [c] to append chat.")
-
+        self.chat_feed.append("System", "Ready. Press … to add a round column; … to append chat.")
+        
     # ---------- Leaderboard helpers ----------
 
     def _rebuild_leaderboard(self) -> None:
@@ -570,8 +645,6 @@ class MainScreen(Screen):
             row.extend(str(v) for v in p.get("rounds", []))
             dt.add_row(*row)
 
-
-
     def _rebuild_user_controls(self) -> None:
         try:
             lv = self.query_one("#user-controls-area", ListView)
@@ -583,7 +656,7 @@ class MainScreen(Screen):
         for p in self.players:
             pid = p["player_id"]
 
-            row = Container(
+            row = Horizontal(
                             Label(p["name"], classes="uc-name"),
                             Button("Kick", id=f"kick-{pid}", classes="uc-kick"),
                             Button("Mute", id=f"mute-{pid}", classes="uc-mute"),
@@ -596,7 +669,7 @@ class MainScreen(Screen):
 # --------- quiz internals ---------
     def _initialize_quiz(self, quiz: dict) -> None:
         if not quiz:
-            self.append_chat("[red]No quiz data provided to initialize.")
+            self.append_chat(user=self.host_name, msg="[red]No quiz data provided to initialize.")
             logger.error("No quiz data provided to initialize.")
         self.selected_quiz = quiz
         
@@ -655,11 +728,8 @@ class MainScreen(Screen):
     
     def end_quiz(self) -> None:
         """Wrap up the quiz."""
-        self.append_chat("* Quiz ended.")
+        self.append_chat(user=self.host_name, msg="Quiz ended.")
         self.toggle_buttons()
-
-
-
 
     # ---------- Actions ----------
     def action_add_player(self) -> None:
@@ -684,27 +754,44 @@ class MainScreen(Screen):
             p.setdefault("rounds", []).append(delta)
         self._rebuild_leaderboard()
 
-    def action_demo_chat(self) -> None:
-        self.append_chat(f"[{datetime.now().strftime('%H:%M:%S')}] Host: demo line")
+    def append_chat(self, user: str, msg: str) -> None:
+        if self.chat_feed:
+            self.chat_feed.append(user, msg)
 
-    # ---------- Chat helper ----------
-    def append_chat(self, text: str) -> None:
-        if self.chat_log:
-            self.chat_log.write('\n' + text)
+    def action_send_chat(self) -> None:
+        if self.chat_input and self.chat_input.has_focus:
+            self._send_chat_from_input()
+
+    def action_demo_chat(self) -> None:
+        self.append_chat(user=self.host_name, msg=f"demo line")
+
+    def on_input_submitted(self, e: Input.Submitted) -> None:
+        if e.input.id == "chat-input":
+            self._send_chat_from_input()
+
+    def _send_chat_from_input(self) -> None:
+        if self.chat_input and (txt := self.chat_input.value.strip()):
+            self.chat_input.value = ""
+            self.append_chat("Host", txt)
+    
+    
 
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = (event.button.id or "")
         if bid.startswith("kick-"):
-            self.append_chat(f"* Kicked {bid.removeprefix('kick-')}")
+            self.append_chat(user=self.host_name, msg=f"Kicked {bid.removeprefix('kick-')}")
         elif bid.startswith("mute-"):
-            self.append_chat(f"* Toggled mute for {bid.removeprefix('mute-')}")
+            self.append_chat(user=self.host_name, msg=f"Toggled mute for {bid.removeprefix('mute-')}")
         elif bid.startswith("load-quiz"):
             self.selected_quiz = await self.app.push_screen_wait(QuizSelector())  # get data
-            self.append_chat(f"* Loaded quiz: {self.selected_quiz['title']}")
+            self.append_chat(user=self.host_name, msg=f"Loaded quiz: {self.selected_quiz['title']}")
             self._initialize_quiz(self.selected_quiz)
             # self.toggle_buttons()
+        elif bid == "chat-send":
+            self._send_chat_from_input()
+            return
         elif bid == "start-quiz":
             self.start_quiz()
         elif bid == "next-question":
@@ -713,7 +800,7 @@ class MainScreen(Screen):
         elif bid == "end-quiz":
             self.end_question
         elif bid.startswith("create-quiz"):
-            self.append_chat("* Created new quiz selected (not implemented)")
+            self.append_chat(user=self.host_name, msg="Created new quiz selected (not implemented)")
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.tab.id == "user-controls":
@@ -752,20 +839,13 @@ class LoginScreen(Screen):
     .controls {
       width: 28;
       padding: 1 1;
-      border: tall $panel;
-    }
-
-    # Center column: player list
-    .players-column {
-      min-width: 40;
-      padding: 1 1;
-      border: tall $panel;
+      outline: tall $panel;
     }
 
     .player-card {
       padding: 0 1;
       height: 3;
-      background: $boost;
+    #   background: $boost;
       margin: 0 0 1 0;
     }
 
@@ -816,13 +896,29 @@ class LoginScreen(Screen):
         # --- unify both triggers on one action ---
     def action_attempt_login(self) -> None:
         vals = self._get_values()
+        
         ok, msg = self._validate(vals)
         if not ok:
             self._show_error(msg)
             return
-        # success -> switch modes (or emit a custom Message if you prefer)
+        self.app.login_info = vals.copy()  # store for later use in MainScreen
         self.query_one(".error-message").add_class("hidden")
+        if not self._connect_to_server(vals):
+            self._show_error("Failed to connect to server.")
+            return
+        # success -> switch modes (or emit a custom Message if you prefer)
         self.app.switch_mode("main")
+        
+    def _connect_to_server(self, vals: dict) -> bool:
+        """Attempt to connect to server with given vals.
+        setup connection stuff here
+          - the logic needs to be moved over from host_tui_old.py and extended
+                (including player information)
+
+        Return True on success, False on failure.
+        """
+        
+        return True  # placeholder for real connection logic
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         
@@ -837,14 +933,11 @@ class LoginScreen(Screen):
             
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        # Hitting Enter in any Input triggers attempt (you can gate by id if you want)
         self.action_attempt_login()
 
     # --- helpers ---
     def _get_values(self) -> dict:
-        # Match how your containers assign child IDs:
-        # BorderedInputButtonContainer => #{id}-input
-        # BorderedTwoInputContainer   => #{id}-input1 / #{id}-input2
+        
         return {
             "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
@@ -878,7 +971,7 @@ class HostUIPlayground(App):
 
     CSS = """
     Screen {
-        background: $background;
+        # background: $background;
         }
     """
 
@@ -899,6 +992,7 @@ class HostUIPlayground(App):
         super().__init__()
         self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
+        self.login_info: dict = {}
 
 
     # Small API points to be used later when wiring event handlers
@@ -920,7 +1014,7 @@ class HostUIPlayground(App):
     # Bindings / actions
 
     def action_toggle_dark(self) -> None:
-        self.theme = THEME if self.theme != THEME else "nord-light"
+        self.theme = THEME if self.theme != THEME else "textual-dark"
 
     async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
         # seed some players for the initial view
@@ -931,8 +1025,8 @@ class HostUIPlayground(App):
         self.update_players(self.players)
         # sample quiz
         self.theme = THEME
-        self.switch_mode("login")
-        # self.switch_mode("main")
+        # self.switch_mode("login")
+        self.switch_mode("main")
 
 if __name__ == "__main__":
     HostUIPlayground().run()
