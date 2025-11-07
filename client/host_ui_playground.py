@@ -24,6 +24,7 @@ from __future__ import annotations
 import random
 from datetime import datetime
 from collections import deque
+import asyncio
 
 from typing import List
 from dataclasses import dataclass
@@ -39,7 +40,7 @@ from textual_plotext import PlotextPlot
 import secrets
 import logging
 from quiz_selector import QuizSelector, logger
-from quiz_preview import QuizPreview
+from quiz_preview_log import QuizPreviewLog
 from chat import MarkdownChat
 
 THEME = "flexoki"
@@ -146,6 +147,9 @@ class PercentCorrectPlot(_BasePlot):
         plt.xlabel("Question #")
         plt.ylabel("% Correct")
         plt.ylim(0, 100)
+        plt.xlim(0, max(1, n+1))
+        xticks = list(range(0, max(2, n + 2)))
+        plt.xticks(xticks)
 
 class BorderedInputButtonContainer(HorizontalGroup):
     """A Container with a border + border title."""
@@ -226,127 +230,6 @@ class TimeDisplay(Digits):
     """A widget to display time remaining."""
 
 
-# class QuizPreview(VerticalScroll):
-#     """Scrollable preview of the selected quiz (title, questions, options)."""
-
-#     # You can tweak spacing/fonts here without touching your screen CSS
-#     DEFAULT_CSS = """
-#     QuizPreview {
-#         padding: 1 2;
-#         background: $panel;
-#         border: tall $background 80%;
-#         height: 1fr;
-#         content-align: left middle;
-#     }
-
-#     .qp-title {
-#         padding: 0 0 1 0;
-#     }
-
-#     .qp-subtitle {
-#         color: $text-muted;
-#         padding-bottom: 1;
-#     }
-
-#     .qp-qblock {
-#         padding: 1 0;
-#         border-bottom: solid $surface 10%;
-#     }
-
-#     .qp-qprompt {
-#         text-style: bold;
-#         padding-bottom: 1;
-#     }
-
-#     .qp-option-row {
-#         padding: 0;
-#     }
-
-#     .qp-letter {
-#         width: 3;
-#         text-style: bold;
-#     }
-
-#     .qp-empty {
-#         color: $text-muted;
-#         padding: 2 0;
-#     }
-#     """
-
-#     quiz: Optional[Dict[str, Any]] = reactive(None)
-
-#     def set_quiz(self, quiz: Optional[Dict[str, Any]]) -> None:
-#         """Public API: call this to (re)render the preview."""
-#         self.quiz = quiz  # triggers watch_quiz
-
-#     # ---- reactive hook -----------------------------------------------------
-
-#     def watch_quiz(self, quiz: Optional[Dict[str, Any]]) -> None:
-#         self._render_quiz()
-
-#     # ---- lifecycle ---------------------------------------------------------
-
-#     def on_mount(self) -> None:
-#         # Initial placeholder render
-#         self._render_quiz()
-
-#     # ---- render helpers ----------------------------------------------------
-
-#     def _render_quiz(self) -> None:
-#         self.remove_children()
-
-#         if not self.quiz:
-#             self.mount
-#             self.mount(Static("No quiz selected.", classes="qp-empty"))
-#             return
-
-#         title = self.quiz.get("title", "Untitled Quiz")
-#         questions: List[Dict[str, Any]] = self.quiz.get("questions", [])
-
-#         # Header
-#         self.mount(Static(f"[b]{title}[/b]", classes="qp-title"))
-#         self.mount(
-#             Static(
-#                 f"{len(questions)} question{'s' if len(questions)!=1 else ''}",
-#                 classes="qp-subtitle",
-#             )
-#         )
-
-#         # Questions
-#         for i, q in enumerate(questions, 1):
-#             self._mount_question_block(i, q)
-
-#         # Ensure layout updates once after mounting everything
-#         self.refresh(layout=True)
-
-#     def _mount_question_block(self, index: int, q: Dict[str, Any]) -> None:
-#         """Create a single question block with its options."""
-
-#         prompt = q.get("prompt", "(no prompt)")
-#         options: List[str] = q.get("options", [])
-#         letters = self._letters(len(options))
-
-#         q_block = Vertical(classes="qp-qblock")
-
-#         # Prompt
-#         q_block.mount(
-#             Static(f"{index}. {prompt}", classes="qp-qprompt")
-#         )
-
-#         # Options
-#         for letter, text in zip(letters, options):
-#             row = Horizontal(classes="qp-option-row")
-#             row.mount(Static(f"{letter}.", classes="qp-letter"))
-#             row.mount(Static(text, expand=True))
-#             q_block.mount(row)
-
-#         self.mount(q_block)
-
-#     @staticmethod
-#     def _letters(n: int) -> List[str]:
-#         return list(string.ascii_uppercase[: max(0, n)])
-
-
 class MainScreen(Screen):
     """Host main screen."""
 
@@ -369,7 +252,7 @@ class MainScreen(Screen):
     #quiz-preview { 
         height: 4fr; 
         # background: red;
-        content-align: center middle;
+        content-align: center top;
     }
     
     #graphs-area { 
@@ -519,7 +402,9 @@ class MainScreen(Screen):
         ("r", "remove_player", "Remove player"),
         ("n", "next_round", "New round column"),  # demo: add a per-round column
         ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
-        ("enter", "send_chat", "Send chat input")
+        ("enter", "send_chat", "Send chat input"),
+        ("e", "end_question", "End question"),  # demo: end question
+        ("s", "end_quiz", "End quiz"),  # demo: end quiz
     ]
 
     def __init__(self) -> None:
@@ -549,7 +434,7 @@ class MainScreen(Screen):
         
         # quiz refs
         self.selected_quiz: dict | None = None
-        self.quiz_preview: QuizPreview | None = None
+        self.quiz_preview: QuizPreviewLog | None = None
         
         # chat refs
         self.chat_feed: MarkdownChat | None = None
@@ -563,13 +448,13 @@ class MainScreen(Screen):
         yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
         with Horizontal(id="main-container"):
             with Vertical(id="left-column"):
-                yield QuizPreview(id="quiz-preview")
+                yield QuizPreviewLog(id="quiz-preview")
                 with Horizontal(id="session-controls-area", classes="two-grid"):
                     yield Button("Create Quiz", id="create-quiz")
                     yield Button("Load Quiz", id="load-quiz")
                     yield Button("Start Quiz", id="start-quiz", classes="hidden")
                     yield Button("Next Question", id="next-question", classes="hidden")
-                    yield Button("End Quiz", id="end-quiz", classes="hidden")
+                    yield Button("End Question", id="end-question", classes="hidden")
                 with Horizontal(id="graphs-area"):
                     yield AnswerHistogramPlot(id="answers-plot")
                     yield PercentCorrectPlot(id="percent-plot")
@@ -605,9 +490,9 @@ class MainScreen(Screen):
         self.load_quiz_btn = self.query_one("#load-quiz", Button)
         self.start_btn = self.query_one("#start-quiz", Button)
         self.nq_btn = self.query_one("#next-question", Button)
-        self.end_quiz_btn = self.query_one("#end-quiz", Button)
+        self.end_quiz_btn = self.query_one("#end-question", Button)
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
-        self.quiz_preview = self.query_one(QuizPreview)
+        self.quiz_preview = self.query_one("#quiz-preview", QuizPreviewLog)
         self.host_name = self.app.login_info.get("host_name", "Host") if self.app.login_info else "Host"
 
 
@@ -630,20 +515,31 @@ class MainScreen(Screen):
     def _rebuild_leaderboard(self) -> None:
         if not self.leaderboard:
             return
+
         dt = self.leaderboard
         dt.clear(columns=True)
-        
-        # 1) Ensure base columns exist exactly once
-        base_cols = ["Ping", "Name", "Total"]
-        round_cols = [f"R{i}" for i in range(1, self.round_idx + 1)]
-        dt.add_columns(*base_cols, *round_cols)
 
+        # 1) Define columns
+        base_labels = ["Ping", "Name", "Total"]
+        round_labels = [f"R{i}" for i in range(1, self.round_idx + 1)]
 
-        # 4) Re-add rows from the model
+        # 2) Add columns and capture keys (order matches labels)
+        keys = dt.add_columns(*base_labels, *round_labels)
+        ping_key, name_key, total_key, *round_keys = keys  # <-- keep these
+
+        # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
-            row = [str(p.get("ping", "-")), p["name"], str(p.get("score", 0))]
-            row.extend(str(v) for v in p.get("rounds", []))
+            ping = int(p.get("ping", 0)) if str(p.get("ping", "")).isdigit() else p.get("ping", "-")
+            name = p["name"]
+            total = int(p.get("score", 0))
+            rounds = [int(v) for v in p.get("rounds", [])]
+
+            row = [ping, name, total, *rounds]
             dt.add_row(*row)
+
+        # 4) Sort by Total (desc). Use the column KEY, not the label string.
+        dt.sort(total_key, reverse=True)
+
 
     def _rebuild_user_controls(self) -> None:
         try:
@@ -667,16 +563,20 @@ class MainScreen(Screen):
 
 
 # --------- quiz internals ---------
-    def _initialize_quiz(self, quiz: dict) -> None:
-        if not quiz:
+    def _initialize_quiz(self) -> None:
+        if not self.selected_quiz:
             self.append_chat(user=self.host_name, msg="[red]No quiz data provided to initialize.")
             logger.error("No quiz data provided to initialize.")
-        self.selected_quiz = quiz
+        # self.selected_quiz = quiz # already set in on_button_pressed
         
         #1 setup preview panel
         if self.quiz_preview:
-            logger.debug(f"Setting quiz preview: quiz:{quiz}")
-            self.quiz_preview.set_quiz(quiz)
+            logger.debug(f"Setting quiz preview: quiz:{self.selected_quiz}")
+            self.append_chat(user="Server", msg=f"Quiz loaded: [b]{self.selected_quiz.get('title','(untitled)')}[/b]")
+            self.quiz_preview.set_quiz(self.selected_quiz)
+            self.quiz_preview.set_current_question(0)  # highlight Q1
+            self.quiz_preview.set_show_answers(False)
+            
         
         #2 reset round state + leaderboard columns
         self.round_idx = 0
@@ -687,8 +587,9 @@ class MainScreen(Screen):
         
         #3 reset plots
         self.query_one("#percent-plot", PercentCorrectPlot).set_series([])
-        default_labels = ["A", "B", "C", "D"] # change as needed to be the first values?
-        self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(default_labels)
+        labels = self._get_labels_for_question(0) or ["A", "B", "C", "D"]
+
+        self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(labels)
 
         #4 enable start quiz and next buttons
         self.toggle_buttons()
@@ -696,39 +597,118 @@ class MainScreen(Screen):
 
     # ---------- Host Control Actions ----------
     
+    def _get_labels_for_question(self, q_idx: int) -> list[str]:
+        """Derive answer labels from the selected quiz and question index."""
+        if not self.selected_quiz:
+            return []
+        questions = self.selected_quiz.get("questions", [])
+
+        if not (0 <= q_idx < len(questions)):
+            return []
+
+        options = questions[q_idx].get("options", [])
+        return [chr(65 + i) for i in range(len(options))]  # A, B, C, ...
+    
     def start_quiz(self) -> None:
         """Prepare state for Q0 and show 'waiting for answers'."""
         if not self.selected_quiz:
             return
+        self.append_chat(user=self.host_name, msg="Quiz started.")
+        self.round_idx = 1  # first question is index 0
+        
         # If your quiz has options per question, set labels from question 0.
-        labels = ["A", "B", "C", "D"]  # TODO: derive from self.selected_quiz
+        labels = self._get_labels_for_question(self.round_idx - 1)
+        # labels = ["A", "B", "C", "D"]  # TODO: derive from self.selected_quiz
         self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
         # Optional: update a label like "Q 1 / N" here
+        # self.quiz_preview.set_question_label(f"Q {self.round_idx} / {len(self.selected_quiz.get('questions', []))}")
+        self.begin_question(0)
+        
 
     def begin_question(self, q_idx: int) -> None:
         """Switch plots/UI to the given question."""
-        labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
+        if not self.selected_quiz:
+            return
+        
+        self.quiz_preview.set_current_question(q_idx)
+        self.quiz_preview.set_show_answers(False)
+        logger.debug(f"Beginning question {q_idx}.")
+        # logger.debug(f"Question options: {self.selected_quiz['questions'][q_idx]['options']}")
+        # self.selected_quiz["questions"][q_idx]["options"]   
+
+        
+        # labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
+        labels = self._get_labels_for_question(q_idx)
+        logger.debug(f"Question {q_idx} labels: {labels}")
         self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
         # Also clear any per-question timers, badges, etc.
+        
+        self.simulate_responses()
+       
+    def next_question(self) -> None:
+        """Advance to the next question."""
+        
+        if not self.selected_quiz:
+            return
+        
+        if self.round_idx >= len(self.selected_quiz.get("questions", [])):
+            # no more questions
+            self.append_chat(user=self.host_name, msg="No more questions remaining.")
+            logger.debug("No more questions remaining.")
+            return
+            
+        if not self.quiz_preview.show_answers:
+            # end current question first
+            self.end_question()
+        
+        self.round_idx += 1
+        self.begin_question(self.round_idx - 1) 
+        
+    def simulate_responses(self) -> None:
+        """Demo method to simulate random answers arriving over time."""
+        async def _sim():
+            for _ in range(len(self.players)):
+                await asyncio.sleep(random.uniform(0.1, 0.5))
+                choice = random.randint(0, 3)
+                self.tally_answer(choice)
+        asyncio.create_task(_sim())     
+        
 
     def tally_answer(self, choice_index: int) -> None:
         """Increment histogram as answers arrive in real time."""
         answers_plot = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot)
         if 0 <= choice_index < len(answers_plot.counts):
-            new_counts = list(answers_plot.counts)
-            new_counts[choice_index] += 1
-            answers_plot.set_counts(new_counts)
+            answers_plot.bump(choice_index)
 
-    def end_question(self, q_idx: int, correct: bool, percent_correct: float) -> None:
+    def end_question(self) -> None:
         """Close the question: freeze histogram and append % correct."""
+        if not self.selected_quiz:
+            return
+        if self.round_idx < 1:
+            return  # no question in progress
+        
+        # update leaderboard
+        for p in self.players:
+            delta = random.randint(0, 10)
+            p["score"] = p.get("score", 0) + delta
+            p.setdefault("rounds", []).append(delta)
+        self._rebuild_leaderboard()
+        
+        # update percent correct plot
+        percent_correct = self.calculate_percent_correct()
+        # highlight correct answer in preview
+        logger.debug(f"Ending question. Percent correct: {percent_correct}")
+        self.quiz_preview.set_show_answers(True)
+        
         pc_plot = self.query_one("#percent-plot", expect_type=PercentCorrectPlot)
         pc_plot.set_series([*pc_plot.percents, percent_correct])
         # Update leaderboard totals if you score per question here.
-        self._rebuild_leaderboard()
     
     def end_quiz(self) -> None:
         """Wrap up the quiz."""
         self.append_chat(user=self.host_name, msg="Quiz ended.")
+        self.selected_quiz = None
+        self.quiz_preview.set_quiz(None)
         self.toggle_buttons()
 
     # ---------- Actions ----------
@@ -745,14 +725,33 @@ class MainScreen(Screen):
             self._rebuild_leaderboard()
             self._rebuild_user_controls()
 
+    def action_start_quiz(self) -> None:
+        self.start_quiz()
 
-    def action_next_round(self) -> None:
-        self.round_idx += 1
-        for p in self.players:
-            delta = random.randint(0, 10)
-            p["score"] = p.get("score", 0) + delta
-            p.setdefault("rounds", []).append(delta)
-        self._rebuild_leaderboard()
+    def action_next_round(self) -> None:      
+        self.next_question()
+        
+    def action_end_question(self) -> None:
+        self.end_question()
+        
+    def calculate_percent_correct(self) -> float:
+        """Demo method to calculate a random percent correct."""
+        if not self.selected_quiz:
+            return 0.0
+        
+        correct_index = self.quiz_preview.get_correct_answer_index()
+        if correct_index is None:
+            return 0.0
+        responses = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).counts
+        sum_responses = sum(responses)
+        if sum_responses == 0:
+            return 0.0
+        num_correct = responses[correct_index]
+        percent_correct = (num_correct / sum_responses) * 100.0
+        return percent_correct        
+    
+    def action_end_quiz(self) -> None:
+        self.end_quiz()
 
     def append_chat(self, user: str, msg: str) -> None:
         if self.chat_feed:
@@ -763,7 +762,24 @@ class MainScreen(Screen):
             self._send_chat_from_input()
 
     def action_demo_chat(self) -> None:
-        self.append_chat(user=self.host_name, msg=f"demo line")
+        list_of_random_msgs = [
+            "Hello everyone!",
+            "How's it going?",
+            "This quiz is fun!",
+            "I think I know the answer.",
+            "Can we have a break?",
+            "What's the next question?",
+            "Good luck to all!",
+            "I'm ready for the challenge.",
+            "That was a tough one.",
+            "Can't wait for the results!"
+        ]
+        
+        player_name_list = [p["name"] for p in self.players]
+        player_name_list.append(self.host_name if self.host_name else "Host")
+        name = random.choice(player_name_list) if player_name_list else "Player1"
+        line = random.choice(list_of_random_msgs)
+        self.append_chat(user=name, msg=line)
 
     def on_input_submitted(self, e: Input.Submitted) -> None:
         if e.input.id == "chat-input":
@@ -774,8 +790,6 @@ class MainScreen(Screen):
             self.chat_input.value = ""
             self.append_chat("Host", txt)
     
-    
-
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -787,18 +801,19 @@ class MainScreen(Screen):
         elif bid.startswith("load-quiz"):
             self.selected_quiz = await self.app.push_screen_wait(QuizSelector())  # get data
             self.append_chat(user=self.host_name, msg=f"Loaded quiz: {self.selected_quiz['title']}")
-            self._initialize_quiz(self.selected_quiz)
-            # self.toggle_buttons()
+            self._initialize_quiz()
         elif bid == "chat-send":
             self._send_chat_from_input()
-            return
         elif bid == "start-quiz":
             self.start_quiz()
         elif bid == "next-question":
-            self.round_idx += 1
-            self.begin_question(self.round_idx - 1)
-        elif bid == "end-quiz":
-            self.end_question
+            if self.round_idx < 1: self.start_quiz()
+            elif self.round_idx < len(self.selected_quiz['questions']): self.next_question()
+            else: 
+                self.append_chat(user=self.host_name, msg="No more questions remaining.")
+                self.end_quiz()
+        elif bid == "end-question":
+            self.end_question()
         elif bid.startswith("create-quiz"):
             self.append_chat(user=self.host_name, msg="Created new quiz selected (not implemented)")
 
@@ -809,11 +824,6 @@ class MainScreen(Screen):
     def toggle_buttons(self) -> None:
         """Toggle visibility of quiz control buttons for demo."""
         
-        # self.create_quiz_btn.toggle_class("hidden", "three-grid", "two-grid")
-        # self.load_quiz_btn.toggle_class("hidden", "three-grid", "two-grid")
-        # self.start_btn.toggle_class("hidden", "two-grid", "three-grid")
-        # self.nq_btn.toggle_class("hidden", "two-grid", "three-grid")
-        # self.end_quiz_btn.toggle_class("hidden", "two-grid", "three-grid")
         self.create_quiz_btn.toggle_class("hidden")
         self.load_quiz_btn.toggle_class("hidden")
         self.start_btn.toggle_class("hidden")
@@ -825,35 +835,21 @@ class LoginScreen(Screen):
     """Screen for host to enter session details and login."""
     
     CSS = """
+    #login-container {
+        align: center middle;
+        content-align: center middle;
+    }
+    
     BorderedInputButtonContainer {
         border: round $accent;
         border_title_align: center;
+        max-width: 60;
     }
     
     BorderedTwoInputContainer {
         border: round $accent;
         border_title_align: center;
-    }
-
-    # Left column: controls
-    .controls {
-      width: 28;
-      padding: 1 1;
-      outline: tall $panel;
-    }
-
-    .player-card {
-      padding: 0 1;
-      height: 3;
-    #   background: $boost;
-      margin: 0 0 1 0;
-    }
-
-    /* Right column: quiz preview */
-    .quiz-preview {
-      width: 40;
-      padding: 1 1;
-      border: tall $panel;
+        max-width: 60;
     }
     
     .hidden {
@@ -874,7 +870,7 @@ class LoginScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, name="<!> KnewIt Host UI Login <!>")
-        with Vertical():
+        with Vertical(id="login-container"):
             # yield Static("* Server Error Message Placeholder *", classes=[])
             yield BorderedInputRandContainer(input_title="Session ID", 
                                              input_placeholder="demo", 
@@ -1025,8 +1021,8 @@ class HostUIPlayground(App):
         self.update_players(self.players)
         # sample quiz
         self.theme = THEME
-        # self.switch_mode("login")
-        self.switch_mode("main")
+        self.switch_mode("login")
+        # self.switch_mode("main")
 
 if __name__ == "__main__":
     HostUIPlayground().run()

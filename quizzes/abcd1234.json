@@ -1,0 +1,171 @@
+{
+    "quiz_id": "abcd1234",
+    "title": "General Knowledge Test",
+    "questions": [
+        {
+            "id": "q001",
+            "prompt": "What is 5 + 3?",
+            "options": [
+                "6",
+                "7",
+                "8",
+                "9"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q002",
+            "prompt": "Which planet is known as the Red Planet?",
+            "options": [
+                "Venus",
+                "Earth",
+                "Mars",
+                "Jupiter"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q003",
+            "prompt": "How many days are there in a leap year?",
+            "options": [
+                "364",
+                "365",
+                "366",
+                "367"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q004",
+            "prompt": "What is the capital of France?",
+            "options": [
+                "Rome",
+                "Paris",
+                "Madrid",
+                "Berlin"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q005",
+            "prompt": "Which animal says 'Moo'?",
+            "options": [
+                "Dog",
+                "Cat",
+                "Cow",
+                "Duck"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q006",
+            "prompt": "What color do you get when you mix red and blue?",
+            "options": [
+                "Green",
+                "Purple",
+                "Orange",
+                "Brown"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q007",
+            "prompt": "Which ocean is the largest?",
+            "options": [
+                "Atlantic Ocean",
+                "Indian Ocean",
+                "Arctic Ocean",
+                "Pacific Ocean"
+            ],
+            "correct_idx": 3
+        },
+        {
+            "id": "q008",
+            "prompt": "How many legs does a spider have?",
+            "options": [
+                "6",
+                "8",
+                "10",
+                "12"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q009",
+            "prompt": "Which of these is a primary color?",
+            "options": [
+                "Purple",
+                "Green",
+                "Red",
+                "Pink"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q010",
+            "prompt": "What do bees make?",
+            "options": [
+                "Butter",
+                "Honey",
+                "Sugar",
+                "Jam"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q011",
+            "prompt": "What gas do humans breathe in to live?",
+            "options": [
+                "Carbon Dioxide",
+                "Oxygen",
+                "Nitrogen",
+                "Helium"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q012",
+            "prompt": "Which number comes after 9?",
+            "options": [
+                "8",
+                "9",
+                "10",
+                "11"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q013",
+            "prompt": "What is H2O commonly known as?",
+            "options": [
+                "Water",
+                "Hydrogen",
+                "Ozone",
+                "Salt"
+            ],
+            "correct_idx": 0
+        },
+        {
+            "id": "q014",
+            "prompt": "Which fruit keeps the doctor away, according to the saying?",
+            "options": [
+                "Banana",
+                "Apple",
+                "Orange",
+                "Grapes"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q015",
+            "prompt": "Which direction does the sun rise from?",
+            "options": [
+                "North",
+                "South",
+                "East",
+                "West"
+            ],
+            "correct_idx": 2
+        }
+    ]
+}
