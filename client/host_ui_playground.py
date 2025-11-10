@@ -41,10 +41,10 @@ from common import logger
 import secrets
 from quiz_selector import QuizSelector
 from quiz_preview_log import QuizPreviewLog
-from chat import MarkdownChat
+from chat import MarkdownChat, RichLogChat
 
 THEME = "flexoki"
-MAX_CHAT_MESSAGES = 20
+MAX_CHAT_MESSAGES = 200
 
 # ---- shared model -----------------------------------------------------------
 @dataclass
@@ -328,7 +328,19 @@ class MainScreen(Screen):
 
     #chat-list {
         height: 7fr;
-        overflow-x: hidden;
+        # overflow-x: hidden;
+    }
+    
+    #chat-log { 
+        height: 7fr;
+        width: 1fr;
+        # overflow-x: hidden;
+    }
+    #chat-panel {
+        height: 7fr;
+        width: 1fr;
+        layout: vertical;
+        padding: 1;
     }
 
     /* input row stays visible and un-clipped */
@@ -432,11 +444,11 @@ class MainScreen(Screen):
         self.quiz_preview: QuizPreviewLog | None = None
         
         # chat refs
-        self.chat_feed: MarkdownChat | None = None
+        # self.chat_feed: MarkdownChat | None = None
         self.chat_input: Input | None = None
         self.chat_send: Button | None = None
-        
-
+        self.round_active: bool = False
+        self.chat_log: RichLogChat | None = None
         
 
     def compose(self) -> ComposeResult:
@@ -466,8 +478,14 @@ class MainScreen(Screen):
                     yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
                 with TabPane("Chat", id="chat"):
                     # with Vertical(id="chat-panel"):
-                    # yield Static("Chat Messages:", id="chat-md")
-                    yield MarkdownChat(id="chat-list")
+                    yield Static("Chat Messages omasdfoamsdfamofamfodamsodfmaosdmfoasmfoasmdfoamsfo:", id="chat-md")
+                    yield RichLogChat(id="chat-log", 
+                                    max_lines=MAX_CHAT_MESSAGES, 
+                                    markup=True, 
+                                    auto_scroll=True, 
+                                    highlight=False, 
+                                    wrap=True,
+                                    min_width=20)
                     with Horizontal(id="chat-input-row"):
                         yield Input(placeholder="Type message here... (Enter to send)", id="chat-input")
                         yield Button("Send", id="chat-send", variant="primary")
@@ -478,9 +496,9 @@ class MainScreen(Screen):
         self.leaderboard = self.query_one("#leaderboard-area", DataTable)
         self.user_controls = self.query_one("#user-controls-area", ListView)
         self.log_list = self.query_one("#log_area", Log)
-        self.chat_feed = self.query_one("#chat-list", MarkdownChat)
         self.chat_input = self.query_one("#chat-input", Input)
         self.chat_send = self.query_one("#chat-send", Button)
+        self.chat_log   = self.query_one("#chat-log", RichLogChat)
         self.create_quiz_btn = self.query_one("#create-quiz", Button)
         self.load_quiz_btn = self.query_one("#load-quiz", Button)
         self.start_btn = self.query_one("#start-quiz", Button)
@@ -503,8 +521,9 @@ class MainScreen(Screen):
             self.action_add_player()
 
         # Seed chat
-        self.chat_feed.append("System", "Ready. Press … to add a round column; … to append chat.")
-        
+        # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
+        self.append_chat("System", "Ready from mount. Press a to add a round column; e to append chat.", "sys")
+    
     # ---------- Leaderboard helpers ----------
 
     def _rebuild_leaderboard(self) -> None:
@@ -546,11 +565,12 @@ class MainScreen(Screen):
 
         for p in self.players:
             pid = p["player_id"]
+            name = p["name"]
 
             row = Horizontal(
                             Label(p["name"], classes="uc-name"),
-                            Button("Kick", id=f"kick-{pid}", classes="uc-kick"),
-                            Button("Mute", id=f"mute-{pid}", classes="uc-mute"),
+                            Button("Kick", id=f"kick-{name}", classes="uc-kick"),
+                            Button("Mute", id=f"mute-{name}", classes="uc-mute"),
                             classes="uc-row",
                         )
 
@@ -623,12 +643,13 @@ class MainScreen(Screen):
         """Switch plots/UI to the given question."""
         if not self.selected_quiz:
             return
-        
+        # self.selected_quiz["questions"][q_idx]["options"]   
+
+        self.round_active = True
         self.quiz_preview.set_current_question(q_idx)
         self.quiz_preview.set_show_answers(False)
         logger.debug(f"Beginning question {q_idx}.")
         # logger.debug(f"Question options: {self.selected_quiz['questions'][q_idx]['options']}")
-        # self.selected_quiz["questions"][q_idx]["options"]   
 
         
         # labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
@@ -676,11 +697,15 @@ class MainScreen(Screen):
 
     def end_question(self) -> None:
         """Close the question: freeze histogram and append % correct."""
+        logger.debug(f"Ending question. self.round_active = {self.round_active}")
+        
         if not self.selected_quiz:
             return
         if self.round_idx < 1:
             return  # no question in progress
-        
+        if not self.round_active:
+            return  # question already ended
+        self.round_active = False
         # update leaderboard
         for p in self.players:
             delta = random.randint(0, 10)
@@ -747,9 +772,18 @@ class MainScreen(Screen):
     def action_end_quiz(self) -> None:
         self.end_quiz()
 
-    def append_chat(self, user: str, msg: str) -> None:
-        if self.chat_feed:
-            self.chat_feed.append(user, msg)
+    def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
+        if user == "System":
+            priv = "sys"
+        elif user == self.host_name:
+            priv = "host"
+        if self.chat_log:
+            self.chat_log.append_chat(user, msg, priv)
+            # self.chat_log.refresh()
+            # self.chat_log.write(msg)
+            
+        # if self.chat_feed:
+        #     self.chat_feed.append(user, msg)
 
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:
@@ -782,7 +816,7 @@ class MainScreen(Screen):
     def _send_chat_from_input(self) -> None:
         if self.chat_input and (txt := self.chat_input.value.strip()):
             self.chat_input.value = ""
-            self.append_chat("Host", txt)
+            self.append_chat(user=self.host_name, msg=txt)
     
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
@@ -794,6 +828,9 @@ class MainScreen(Screen):
             self.append_chat(user=self.host_name, msg=f"Toggled mute for {bid.removeprefix('mute-')}")
         elif bid.startswith("load-quiz"):
             self.selected_quiz = await self.app.push_screen_wait(QuizSelector())  # get data
+            if not self.selected_quiz:
+                self.append_chat(user=self.host_name, msg="Quiz loading cancelled.")
+                return
             self.append_chat(user=self.host_name, msg=f"Loaded quiz: {self.selected_quiz['title']}")
             self._initialize_quiz()
         elif bid == "chat-send":
@@ -947,6 +984,12 @@ class LoginScreen(Screen):
         parts = v["server_ip"].split(".")
         if len(parts) != 4 or any(not p.isdigit() or not (0 <= int(p) <= 255) for p in parts):
             return False, "Server IP must look like A.B.C.D (0–255)."
+        
+        # check if there's spaces in the host name
+        if " " in v["host_name"]:
+            # modify to use underscores
+            v["host_name"] = v["host_name"].replace(" ", "_")
+            
         return True, ""
 
     def _show_error(self, msg: str) -> None:

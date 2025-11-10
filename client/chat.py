@@ -2,9 +2,13 @@
 from __future__ import annotations
 from typing import List
 from datetime import datetime
+from collections import deque
 
 from textual.containers import VerticalScroll
-from textual.widgets import Markdown
+from textual.widgets import Markdown, RichLog
+from textual.events import Resize
+from rich.text import Text
+from common import logger
 
 
 class MarkdownChat(VerticalScroll):
@@ -55,3 +59,43 @@ class MarkdownChat(VerticalScroll):
                  .replace("`", "\\`").replace("[", "\\[")
                  .replace("]", "\\]").replace("<", "\\<")
                  .replace(">", "\\>"))
+
+class RichLogChat(RichLog):
+    """Scrollable RichLog chat with FIFO and batching."""
+    wrap = True
+    markup = True
+    auto_scroll = True
+    min_width = 1        # let it shrink to container
+
+    CSS = """
+    RichLogChat {
+        border: solid $boost 50%;
+        background: $boost 10%;
+        height: 1fr;
+        width: 1fr;
+        # overflow-x: hidden;
+    }
+    """    
+
+    MAX_LINES = 200
+
+
+    def on_mount(self) -> None:
+        self._lines: List[str] = []       # full logical buffer (max 20)
+        self.history = deque(maxlen=self.MAX_LINES)
+
+    def append_chat(self, user: str, msg: str, role: str | None = None) -> None:
+        prefix = Text(datetime.now().strftime("[%H:%M:%S] "), style="dim")
+        prefix.append(user, style={"host":"bold magenta","mod":"bold cyan","sys":"bold yellow"}.get(role,"bold green"))
+        prefix.append(": ")
+        line = Text.assemble(prefix, Text.from_markup(msg))
+        self.history.append(line)
+        # no width= -> allow expand/shrink to work
+        self.write(line, expand=True, shrink=True)
+
+    def on_resize(self, _: Resize) -> None:
+        # reflow at the new width
+        self.clear()
+        for line in self.history:
+            self.write(line, expand=True, shrink=True)
+
