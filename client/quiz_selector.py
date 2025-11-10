@@ -29,77 +29,101 @@ class QuizSelector(Screen[dict]):
         padding: 1;
     }
     
+    QuizSelector {
+        align: center middle;
+        }
+    
     #header {
         height: 3;
         content-align: center middle;
-        background: blue;
+        # background: $surface;
+        width: 60%;
+        border: thick $boost;
+        text-style: bold;
+        # color: cyan;
+        
     }
     
     #status {
         height: 1;
-        color: yellow;
+        width: 60%;
+        content-align: center middle;
+
     }
     
     #quiz-list {
         height: 20;
-        border: solid cyan;
+        width: 60%;
+        # content-align: center middle;
+        align: center middle;
+        border: solid $accent;
         padding: 1;
     }
 
     #cancel-btn {
         margin-top: 1;
-        align-horizontal: right;
+        width: 20%;
+        height: 3;
+        align: center middle;
     }
     
     #quiz-selection {
         height: 100%;
         background: $panel;
-        border: thick cyan;
+        border: thick $accent;
         padding: 2;
         layout: vertical;
+        width: 60%;
+        align: center middle;
     }
     
     .quiz-item {
+        width: 60%;
         height: 3;
         padding: 1;
         margin-bottom: 1;
-        border: solid green;
+        # border: solid green;
     }
     
     .quiz-item:hover {
-        background: green 20%;
+        background: $boost 20%;
     }
     
     .selection-title {
         height: 3;
         content-align: center middle;
         text-style: bold;
-        color: cyan;
-        background: blue;
+        width: 60%;
     }
     
     .selection-subtitle {
         height: 2;
         content-align: center middle;
         color: yellow;
+        width: 60%;
     }
     
     .quiz-select-btn {
-        width: 100%;
+        width: 60%;
         min-height: 3;
         margin-bottom: 1;
-        background: green 30%;
-        border: solid green;
+        background: $surface 30%;
+        border: solid $surface;
     }
     
     .quiz-select-btn:hover {
-        background: green 50%;
+        background: $surface 50%;
     }
     
     #cancel-selection {
-        width: 100%;
+        width: 60%;
         height: 3;
     }
+    
+    Vertical {
+        align: center middle;
+        width: 60%;
+        }
     
     Button {
         margin: 1;
@@ -152,8 +176,9 @@ class QuizSelector(Screen[dict]):
         """Handle button clicks."""
         button_id = event.button.id
         
-        if button_id == "cancel-btn":
-            self.app.switch_mode("main")
+        if button_id == "cancel-btn" or button_id == "cancel-selection":
+            # self.app.switch_mode("main")
+            self.dismiss(None)
         elif button_id and button_id.startswith("quiz-"):
             # Extract quiz_id
             quiz_id = button_id[5:]  # Remove "quiz-" prefix
@@ -222,7 +247,7 @@ class QuizSelector(Screen[dict]):
         self.quiz_list_widget.remove_children()
         selection_container = self.quiz_list_widget
         # Add title
-        selection_container.mount(Static("Select a Quiz", classes="selection-title"))
+        # selection_container.mount(Static("Select a Quiz", classes="selection-title"))
         selection_container.mount(Static(f"Found {len(self.quiz_list)} saved quizzes", classes="selection-subtitle"))
 
         logger.info("Displaying quiz selection menu.")
