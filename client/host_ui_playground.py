@@ -22,8 +22,6 @@ methods (update_players, set_quiz_preview) you can later call from
 from __future__ import annotations
 
 import random
-from datetime import datetime
-from collections import deque
 import asyncio
 
 from typing import List
@@ -31,16 +29,15 @@ from dataclasses import dataclass
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label, Digits
 from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
-from textual.message import Message
 from textual.app import App, ComposeResult
-from textual.widget import Widget
-from textual.reactive import reactive
 from textual import events, on, work
-from textual_plotext import PlotextPlot
 from common import logger
 import secrets
+
+from plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
 from quiz_selector import QuizSelector
 from quiz_preview_log import QuizPreviewLog
+from timedisplay import TimeDisplay
 from chat import MarkdownChat, RichLogChat
 
 THEME = "flexoki"
@@ -55,96 +52,8 @@ class SessionModel:
     server_port: int
     
     
-class _BasePlot(PlotextPlot):
-    _pending: bool = False
-    
-    def replot(self) -> None:
-        if self._pending:
-            return
-        self._pending = True
-        
-        def _do():
-            self._pending = False
-            self._draw()
-            self.refresh()
-            
-        # run after the *next* refresh/layout
-        self.call_after_refresh(_do)
-    
-    # redraw on resize
-    def on_resize(self) -> None:
-        self.replot()
-        
-class AnswerHistogramPlot(_BasePlot):
-    """Plot showing answer distribution histogram."""
-    labels = reactive(tuple(), init=False) # e.g., ("A", "B", "C", "D", "E")
-    counts = reactive(tuple(), init=False) # e.g., (5, 10, 3, 0, 2), same length as labels
-    
-    def on_mount(self) -> None:
-        self.labels = tuple()
-        self.counts = tuple()
-        self.replot()
-        
-    def reset_question(self, labels: list[str]) -> None:
-        self.labels = tuple(labels)
-        self.counts = tuple(0 for _ in labels)
-        
-    def bump(self, idx: int) -> None:
-        if 0 <= idx < len(self.counts):
-            counts = list(self.counts)
-            counts[idx] += 1
-            self.counts = tuple(counts)
 
-    def watch_labels(self, _old: tuple, new: tuple) -> None:
-        self.replot()
 
-    def watch_counts(self, _old: tuple, new: tuple) -> None:
-        self.replot()
-
-    def _draw(self) -> None:
-        plt = self.plt
-        plt.clear_data()
-        plt.title("Current Question - Answers")
-        plt.xlabel("Choice")
-        plt.ylabel("Count")
-        if not self.labels or not self.counts:
-            return
-        plt.bar(list(self.labels), list(self.counts))
-        plt.ylim(0, max(self.counts) + 1)
-
-class PercentCorrectPlot(_BasePlot):
-    percents = reactive(tuple(), init=False) # e.g., (50.0, 75.0, 100.0), one per question
-
-    def on_mount(self) -> None:
-        self.percents = tuple()
-        self.replot()
-    
-    # public API
-    def append_result(self, percent_correct: float) -> None:
-        p = max(0.0, min(100.0, percent_correct))
-        self.percents = (*self.percents, p) # should trigger watch method
-        
-    def set_series(self, percents: list[float]) -> None:
-        self.percents = tuple(max(0.0, min(100.0, float(p))) for p in percents)
-
-    # watcher
-    def watch_percents(self, _old, _new) -> None:
-        self.replot()
-    
-    def _draw(self) -> None:
-        plt = self.plt
-        plt.clear_data()
-        n = len(self.percents)
-        xs = list(range(1, n + 1))
-        if xs:
-            plt.plot(xs, list(self.percents), marker="hd")
-        plt.title("% Correct by Question")
-        plt.xlabel("Question #")
-        plt.ylabel("% Correct")
-        plt.ylim(0, 100)
-        plt.xlim(0, max(1, n+1))
-        xticks = list(range(0, max(2, n + 2)))
-        plt.xticks(xticks)
 
 class BorderedInputButtonContainer(HorizontalGroup):
     """A Container with a border + border title."""
@@ -221,8 +130,6 @@ class PlayerCard(Static):
     def render(self) -> str:
         return f"{self.player_name} ({self.player_id})"
 
-class TimeDisplay(Digits):
-    """A widget to display time remaining."""
 
 
 class MainScreen(Screen):
@@ -298,15 +205,24 @@ class MainScreen(Screen):
         min-height: 3;
     }
 
-    TimeDisplay {
-        width: 100%;
-        height: 100%;
-        content-align: center middle;
-        outline: round $accent;
-        text-align: center;
-        # text-style: bold;
-        background: $boost;
-        }
+    #timer-widget {
+        height: 1fr;
+        margin: 0;
+        padding: 0;
+        content-align: left middle;
+        align: left middle;
+    }
+    
+    #timer-label
+    {
+        content-align: left middle;
+        width: 5fr;
+    }
+    #timer-display {
+        content-align: left middle;
+        width: 1fr;
+    }
+    
 
     #right-tabs {
         width: 4fr;
@@ -430,6 +346,7 @@ class MainScreen(Screen):
         self.user_controls: ListView | None = None
         self.log_list: Log | None = None
         self.extra_cols: list[str] = []  # track dynamic round columns
+        self.timer: TimeDisplay | None = None
         
         # session controls
         self.session_controls_area: Horizontal | None = None
@@ -455,6 +372,9 @@ class MainScreen(Screen):
         yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
         with Horizontal(id="main-container"):
             with Vertical(id="left-column"):
+                with HorizontalGroup(id="timer-widget"):
+                    yield Static("Time Remaining", id="timer-label")
+                    yield TimeDisplay(id="timer-display")
                 yield QuizPreviewLog(id="quiz-preview")
                 with Horizontal(id="session-controls-area", classes="two-grid"):
                     yield Button("Create Quiz", id="create-quiz")
@@ -478,7 +398,6 @@ class MainScreen(Screen):
                     yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
                 with TabPane("Chat", id="chat"):
                     # with Vertical(id="chat-panel"):
-                    yield Static("Chat Messages omasdfoamsdfamofamfodamsodfmaosdmfoasmfoasmdfoamsfo:", id="chat-md")
                     yield RichLogChat(id="chat-log", 
                                     max_lines=MAX_CHAT_MESSAGES, 
                                     markup=True, 
@@ -507,7 +426,7 @@ class MainScreen(Screen):
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
         self.quiz_preview = self.query_one("#quiz-preview", QuizPreviewLog)
         self.host_name = self.app.login_info.get("host_name", "Host") if self.app.login_info else "Host"
-
+        self.timer = self.query_one("#timer-display", TimeDisplay)
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
@@ -522,7 +441,7 @@ class MainScreen(Screen):
 
         # Seed chat
         # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
-        self.append_chat("System", "Ready from mount. Press a to add a round column; e to append chat.", "sys")
+        self.append_chat("System", "Ready. Press a to add a round column; e to append chat.", "sys")
     
     # ---------- Leaderboard helpers ----------
 
@@ -646,6 +565,9 @@ class MainScreen(Screen):
         # self.selected_quiz["questions"][q_idx]["options"]   
 
         self.round_active = True
+        if self.timer:
+            self.timer.start(30)  # demo: 30 second timer
+        
         self.quiz_preview.set_current_question(q_idx)
         self.quiz_preview.set_show_answers(False)
         logger.debug(f"Beginning question {q_idx}.")
@@ -675,6 +597,7 @@ class MainScreen(Screen):
         if not self.quiz_preview.show_answers:
             # end current question first
             self.end_question()
+            self.timer.stop()
         
         self.round_idx += 1
         self.begin_question(self.round_idx - 1) 
@@ -705,6 +628,7 @@ class MainScreen(Screen):
             return  # no question in progress
         if not self.round_active:
             return  # question already ended
+        self.timer.stop()
         self.round_active = False
         # update leaderboard
         for p in self.players:
@@ -1058,8 +982,8 @@ class HostUIPlayground(App):
         self.update_players(self.players)
         # sample quiz
         self.theme = THEME
-        self.switch_mode("login")
-        # self.switch_mode("main")
+        # self.switch_mode("login")
+        self.switch_mode("main")
 
 if __name__ == "__main__":
     HostUIPlayground().run()
