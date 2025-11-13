@@ -41,6 +41,14 @@ from quiz_types import (
 # Heartbeat config
 PING_INTERVAL = 20
 
+
+# Seconds of silence before we declare a player "stale"
+PLAYER_TIMEOUT = 60
+
+# Seconds of silence before we declare a player "removed" and drop them
+HARD_TIMEOUT = 300
+
+
 # Background task reference
 _ping_task: asyncio.Task | None = None
 
@@ -106,6 +114,13 @@ async def ws_endpoint(
             raw = await ws.receive_text()
             data = json.loads(raw)
             msg_type = data.get("type")
+
+            # Update last_seen on ANY inbound message (not only 'pong')
+            if session and player_id in session.players:
+                import time
+                player = session.players.get(player_id)
+                if player:
+                    player.last_seen = time.time()
             
             # Heartbeat (client pong replies to our application-level ping)
             if msg_type == "pong":
@@ -130,6 +145,16 @@ async def ws_endpoint(
                         # Broadcast updated lobby so UIs can show latency next to names
                         await broadcast_lobby(session)
 
+                        # If previously stale, mark active again
+                        recovered = False
+                        if player.status == "stale":
+                            player.status = "active"
+                            recovered = True
+                            print(f"[recover] player={player_id} is active again in session={session.id}")
+                        
+                        if recovered:    
+                            await broadcast_lobby(session)
+                
                 # Nothing more to do for heartbeat messages.
                 continue
             
@@ -376,6 +401,44 @@ async def ping_loop():
                     # (broadcast/remove on send failure or during receive loop).
                     continue
 
+            # The following is to identify the stale players based on PLAYER_TIMEOUT
+            stale_players = []
+            dead_players = []
+
+            for pid, player in list(session.players.items()):
+                last = player.last_seen or player.last_pong
+                if last is None:
+                    # Haven't heard from them yet; give them more time
+                    continue
+                silence = now - last
+
+                if silence > HARD_TIMEOUT:
+                    dead_players.append(pid)
+                elif silence > PLAYER_TIMEOUT and player.status == "active":
+                    stale_players.append(pid)
+
+            # Identify stale players
+            if stale_players:
+                from quiz_types import QuizState  # if needed / already imported above
+                for pid in stale_players:
+                    session.players[pid].status = "stale"
+                    print(f"[stale] player={pid} in session={session.id}")
+
+            # Drop dead players
+            if dead_players:
+                for pid in dead_players:
+                    ws = session.connections.get(pid)
+                    if ws is not None:
+                        try:
+                            await ws.close()
+                        except:
+                            pass
+
+                    session.remove_player(pid)
+                    print(f"[dead] removed player={pid} in session={session.id}")
+                
+                # Notify remaining clients that lobby changed
+                await broadcast_lobby(session)
 
 if __name__ == "__main__":
     import uvicorn

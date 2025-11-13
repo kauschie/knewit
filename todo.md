@@ -1,0 +1,22 @@
+## TODO
+- create user id on login and store in config file
+- create player function
+- fix calls to ws.send instead of ws_client/ws_worker
+- client UI
+- fix markup crashes on invalid markup in chat
+- implement chat broadcast logic in server
+- implement player reconnection logic in server and client
+- implement player disconnection logic in server and client
+- implement game state persistence in server
+- implement game management logic in server/orchestrator (if separating, should be in quiz_manager)
+  - question timers
+  - player timeouts (stale logic already there)
+  - round management
+  - score calculation
+- incorporate quiz creator into host ui
+- combine host/client ui into single app login
+- finish wiring host_ui_playground 
+- update server calls in app.py to current functionality so that remote tests can be round
+- implement remote tests for host and client uis
+- stress test clients and server with multiple connections / sessions
+
