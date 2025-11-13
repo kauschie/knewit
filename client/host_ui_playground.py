@@ -578,6 +578,11 @@ class MainScreen(Screen):
 
     # ---------- Actions ----------
     def action_add_player(self) -> None:
+        # needs to be a function to create a player
+        # see if they already existed and were disconnected
+            # if so -> reinstate
+            # if not -> create new player
+        
         pid = f"p{random.randint(1000, 9999)}"
         name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
         self.players.append({"player_id": pid, "name": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
