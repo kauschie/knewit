@@ -38,6 +38,8 @@ from plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
 from quiz_selector import QuizSelector
 from quiz_preview_log import QuizPreviewLog
 from timedisplay import TimeDisplay
+from basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
+from utils import _host_validate
 from chat import MarkdownChat, RichLogChat
 
 THEME = "flexoki"
@@ -51,86 +53,6 @@ class SessionModel:
     server_ip: str
     server_port: int
     
-    
-
-
-
-class BorderedInputButtonContainer(HorizontalGroup):
-    """A Container with a border + border title."""
-
-    def __init__(self, *, 
-                 input_title: str,
-                 input_placeholder: str | None = None,
-                 button_title: str,
-                 **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.input_title = input_title
-        self.input_placeholder = input_placeholder
-        self.button_title = button_title
-
-    def compose(self) -> ComposeResult:
-        yield Input(placeholder=self.input_placeholder, id=f"{self.id}-input")
-        yield Button(self.button_title, id=f"{self.id}-button", variant="primary")
-
-
-    def on_mount(self) -> None:
-        self.border_title = f"{self.input_title}"
-        self.border_title_align = "center"
-        self.border_title_style = "bold"
-        in_container = self.query_one(f"#{self.id}-input", Input)
-        btn = self.query_one(f"#{self.id}-button", Button)
-        in_container.styles.width = "4fr"
-        btn.styles.width = "1fr"
-        # btn.styles.border = ("double", "blue") # this $accent var doesn't work unless it's in css?
-    
-class BorderedInputRandContainer(BorderedInputButtonContainer):
-    def __init__(self, *, 
-                 input_title: str,
-                 input_placeholder: str | None = None,
-                 **kwargs) -> None:
-        super().__init__(input_title=input_title, 
-                         input_placeholder=input_placeholder,
-                         button_title="Random", 
-                         **kwargs)
-
-class BorderedTwoInputContainer(HorizontalGroup):
-    """A Container with a border + border title."""
-    
-    def __init__(self, *, 
-                 border_title: str,
-                 input1_placeholder: str | None = None,
-                 input2_placeholder: str | None = None,
-                 **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.border_title = border_title
-        self.input1_placeholder = input1_placeholder
-        self.input2_placeholder = input2_placeholder
-
-
-    def compose(self) -> ComposeResult:
-        yield Input(placeholder=self.input1_placeholder, id=f"{self.id}-input1")
-        yield Input(placeholder=self.input2_placeholder, id=f"{self.id}-input2")
-
-    def on_mount(self) -> None:
-        self.border_title = f"{self.border_title}"
-        in1 = self.query_one(f"#{self.id}-input1", Input)
-        in2 = self.query_one(f"#{self.id}-input2", Input)
-        in1.styles.width = "4fr"
-        in2.styles.width = "1fr"
-        
-class PlayerCard(Static):
-    """Simple card displaying a player's name and status."""
-
-    def __init__(self, player_id: str, name: str, *, classes: str | None = None) -> None:
-        super().__init__(classes=(classes or "player-card"))
-        self.player_id = player_id
-        # Avoid clashing with Widget.name property; store as player_name
-        self.player_name = name
-
-    def render(self) -> str:
-        return f"{self.player_name} ({self.player_id})"
-
-
 
 class MainScreen(Screen):
     """Host main screen."""
@@ -795,13 +717,7 @@ class LoginScreen(Screen):
         content-align: center middle;
     }
     
-    BorderedInputButtonContainer {
-        border: round $accent;
-        border_title_align: center;
-        max-width: 60;
-    }
-    
-    BorderedTwoInputContainer {
+    BorderedInputButtonContainer, BorderedTwoInputContainer {
         border: round $accent;
         border_title_align: center;
         max-width: 60;
@@ -815,6 +731,7 @@ class LoginScreen(Screen):
         color: red;
         text-align: center;
         margin-top: 2;
+        max-width: 60;
     }
     
     """
@@ -846,9 +763,9 @@ class LoginScreen(Screen):
         
         # --- unify both triggers on one action ---
     def action_attempt_login(self) -> None:
-        vals = self._get_values()
+        vals = self._host_get_values()
         
-        ok, msg = self._validate(vals)
+        ok, msg = _host_validate(vals)
         if not ok:
             self._show_error(msg)
             return
@@ -887,34 +804,21 @@ class LoginScreen(Screen):
         self.action_attempt_login()
 
     # --- helpers ---
-    def _get_values(self) -> dict:
+    def _host_get_values(self) -> dict:
         
         return {
-            "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
+            "session_id": self.query_one("#session-inputs-input", Input).value.strip(),
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
-            "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
-            "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip(),
+            "server_port": self.query_one("#server-inputs-input2", Input).value.strip(),
+            "host_name":  self.query_one("#host-inputs-input", Input).value.strip(),
+            # "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
+            # "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
+            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            # "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
+            # "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }
-
-    def _validate(self, v: dict) -> tuple[bool, str]:
-        missing = [k.replace("_", " ").title() for k in ("session_id","server_ip","server_port","host_name") if not v[k]]
-        if missing:
-            return False, f"Please fill: {', '.join(missing)}."
-        # basic port check
-        if not v["server_port"].isdigit() or not (0 < int(v["server_port"]) < 65536):
-            return False, "Port must be an integer between 1 and 65535."
-        # (optional) quick IP sanity check
-        parts = v["server_ip"].split(".")
-        if len(parts) != 4 or any(not p.isdigit() or not (0 <= int(p) <= 255) for p in parts):
-            return False, "Server IP must look like A.B.C.D (0–255)."
         
-        # check if there's spaces in the host name
-        if " " in v["host_name"]:
-            # modify to use underscores
-            v["host_name"] = v["host_name"].replace(" ", "_")
-            
-        return True, ""
 
     def _show_error(self, msg: str) -> None:
         err = self.query_one(".error-message", Static)
@@ -982,8 +886,8 @@ class HostUIPlayground(App):
         self.update_players(self.players)
         # sample quiz
         self.theme = THEME
-        # self.switch_mode("login")
-        self.switch_mode("main")
+        self.switch_mode("login")
+        # self.switch_mode("main")
 
 if __name__ == "__main__":
     HostUIPlayground().run()
