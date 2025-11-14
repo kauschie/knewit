@@ -4,15 +4,19 @@ import json
 import secrets
 from pathlib import Path
 
+from textual import on, work
+from textual.binding import Binding
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Button, Input
 from textual.containers import Horizontal, Vertical, ScrollableContainer
 from textual.reactive import reactive
+from textual.screen import Screen, ModalScreen
 
 
-class QuizCreator(App):
+class QuizCreator(ModalScreen):
     """Interface for creating quizzes."""
-
+    
+    
     CSS = """
     Screen {
         layout: vertical;
@@ -118,12 +122,12 @@ class QuizCreator(App):
     quiz_title = reactive("")
     questions = reactive([])
 
+
     def __init__(self) -> None:
         super().__init__()
         self.questions_data: list[dict] = []  # {prompt, options[4], correct_idx}
         self.current_q_index: int = 0
         self.quiz_path: Path | None = None
-
     # ------------------------------------------------------------------ layout
 
     def compose(self) -> ComposeResult:
@@ -145,6 +149,7 @@ class QuizCreator(App):
             yield Button("Prev Question", id="prev-question-btn")
             yield Button("Next Question", id="next-question-btn")
             yield Button("Add Question", id="add-question-btn")
+            yield Button("Remove Question", id="remove-question-btn")
             yield Button("Save Quiz", id="save-btn")
             yield Button("Cancel", id="cancel-btn")
 
@@ -166,6 +171,33 @@ class QuizCreator(App):
         self.go_to_question(0)
 
     # ------------------------------------------------------------------ UI helpers
+
+    def _remove_question_block(self, index: int) -> None:
+        """Remove a question block from the UI and data."""
+        if not (0 <= index < len(self.questions_data)):
+            return
+
+        container = self.query_one("#questions-container")
+        block = self.query_one(f"#q-block-{index+1}", Vertical)
+        block.remove()
+        del self.questions_data[index]
+
+        # # Renumber remaining blocks
+        # for i in range(index, len(self.questions_data)):
+        #     blk = self.query_one(f"#q-block-{i+2}", Vertical)
+        #     blk.id = f"q-block-{i+1}"
+        #     num_lbl = blk.query_one(".question-num", Static)
+        #     num_lbl.update(f"Question {i+1}")
+
+        #     prompt_input = blk.query_one(f"#q-prompt-{i+2}", Input)
+        #     prompt_input.id = f"q-prompt-{i+1}"
+
+        #     for j in range(4):
+        #         ans_row = blk.query_one(f".answer-row:nth-child({j+2})", Horizontal)
+        #         opt_input = ans_row.query_one(f"#q-{i+2}-opt-{j}", Input)
+        #         opt_input.id = f"q-{i+1}-opt-{j}"
+        #         correct_btn = ans_row.query_one(f"#q-{i+2}-correct-{j}", Button)
+        #         correct_btn.id = f"q-{i+1}-correct-{j}"
 
     def _add_question_block_from_existing(self) -> None:
         """Create a question block for an existing questions_data entry."""
@@ -255,7 +287,15 @@ class QuizCreator(App):
             await self.save_quiz()
 
         elif button_id == "cancel-btn":
-            self.exit()
+            self.dismiss()
+            
+        elif button_id == "remove-question-btn":
+            if len(self.questions_data) <= 1:
+                self.query_one("#status").update("[red]At least one question is required")
+                return
+            self._remove_question_block(self.current_q_index)
+            new_index = min(self.current_q_index, len(self.questions_data) - 1)
+            self.go_to_question(new_index)
 
         elif button_id == "prev-question-btn":
             if self.current_q_index > 0:
@@ -417,8 +457,10 @@ class QuizCreator(App):
                     "[red]Please add at least one question"
                 )
                 return
-
-            self.exit(quiz_data)
+            
+            if getattr(self.app, 'quiz_path', None) is not None:
+                self.app.quiz_path = self.quiz_path
+            self.dismiss(quiz_data)
 
         except Exception as e:
             self.query_one("#status").update(f"[red]Error: {e}")
@@ -429,7 +471,8 @@ class QuizCreator(App):
 
 def main() -> dict | None:
     """Run the quiz creator, then save or update the quiz file."""
-    app = QuizCreator()
+
+    app = QuizCreatorApp()
     result = app.run()
 
     if result:
@@ -453,9 +496,27 @@ def main() -> dict | None:
     return result
 
 
+class QuizCreatorApp(App[dict[str, object] | None]):
+    """App that uses QuizCreator(Screen) for creating quizzes."""
+    CSS = QuizCreator.CSS
+    BINDINGS = [Binding("ctrl+q", "quit", "Quit", show=False, priority=True)]
+    
+    
+    def __init__(self):
+        self.quiz_path: Path | None = None
+        super().__init__()
+    
+    @work
+    async def on_mount(self) -> None:
+        """Mount the QuizCreator screen."""
+        quiz_data = await self.push_screen_wait(QuizCreator())
+        # exit the wrapper app and return the result from run()/run_async()
+        self.exit(quiz_data)
+
+
 async def run_async() -> dict | None:
     """Run quiz creator asynchronously."""
-    app = QuizCreator()
+    app = QuizCreatorApp()
     return await app.run_async()
 
 
