@@ -8,7 +8,7 @@ from textual import on, work
 from textual.binding import Binding
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, Button, Input
-from textual.containers import Horizontal, Vertical, ScrollableContainer
+from textual.containers import Horizontal, Vertical, ScrollableContainer, VerticalScroll, Container, Grid
 from textual.reactive import reactive
 from textual.screen import Screen, ModalScreen
 
@@ -18,10 +18,12 @@ class QuizCreator(ModalScreen):
     
     
     CSS = """
-    Screen {
-        layout: vertical;
-        padding: 1;
-    }
+    
+    
+    # QuizCreator {
+    #     layout: vertical;
+    #     padding: 1;
+    # }
 
     #header {
         height: 3;
@@ -86,9 +88,7 @@ class QuizCreator(ModalScreen):
         min-width: 5;
     }
 
-    #button-container {
-        height: 3;
-    }
+
 
     #load-container {
         height: 3;
@@ -99,6 +99,7 @@ class QuizCreator(ModalScreen):
     }
 
     Button {
+        height: 100%;
         margin: 0 1;
     }
 
@@ -117,6 +118,22 @@ class QuizCreator(ModalScreen):
     #load-quiz-btn {
         background: purple;
     }
+    
+    #main-grid {
+        width: 70%;
+        height: 80%;
+        align: center middle;
+        content-align: center middle;
+        border: heavy $accent;
+    }
+    
+    #button-container {
+        height: 3;
+        layout: grid;
+        grid-size: 6;
+        grid-columns: 1fr 1fr 1fr 1fr 1fr 1fr;
+        align: center middle;
+    }
     """
 
     quiz_title = reactive("")
@@ -132,35 +149,28 @@ class QuizCreator(ModalScreen):
 
     def compose(self) -> ComposeResult:
         """Create widgets."""
-        yield Header()
 
-        yield Static("Quiz Creator", id="header")
-        yield Static("", id="status")
+        with Vertical(id="main-grid"):
+            yield Static("Quiz Creator", id="header")
+            yield Static("", id="status")
 
-        with Vertical(id="quiz-title-section"):
-            yield Static("Quiz Title:")
-            yield Input(id="quiz_title", placeholder="Enter quiz title")
+            with Vertical(id="quiz-title-section"):
+                yield Static("Quiz Title:")
+                yield Input(id="quiz_title", placeholder="Enter quiz title")
 
-        with ScrollableContainer(id="questions-container"):
-            # Question blocks added in on_mount / load
-            pass
+            with ScrollableContainer(id="questions-container"):
+                # Question blocks added in on_mount / load
+                pass
 
-        with Horizontal(id="button-container"):
-            yield Button("Prev Question", id="prev-question-btn")
-            yield Button("Next Question", id="next-question-btn")
-            yield Button("Add Question", id="add-question-btn")
-            yield Button("Remove Question", id="remove-question-btn")
-            yield Button("Save Quiz", id="save-btn")
-            yield Button("Cancel", id="cancel-btn")
+            with Grid(id="button-container"):
+                yield Button("Prev Question", id="prev-question-btn")
+                yield Button("Next Question", id="next-question-btn")
+                yield Button("Add Question", id="add-question-btn")
+                yield Button("Remove Question", id="remove-question-btn")
+                yield Button("Save Quiz", id="save-btn")
+                yield Button("Cancel", id="cancel-btn")
 
 
-        '''
-        with Horizontal(id="load-container"):
-            yield Button("Load Quiz from path:", id="load-quiz-btn")
-            yield Input(id="load_path", placeholder="quizzes/abcd1234.json")
-        '''
-
-        yield Footer()
 
     async def on_mount(self) -> None:
         """Start with one blank question."""
@@ -460,6 +470,9 @@ class QuizCreator(ModalScreen):
             
             if getattr(self.app, 'quiz_path', None) is not None:
                 self.app.quiz_path = self.quiz_path
+                
+            # Write the quiz to a file
+            self.write_quiz_to_file(quiz_data)
             self.dismiss(quiz_data)
 
         except Exception as e:
@@ -467,7 +480,30 @@ class QuizCreator(ModalScreen):
             import traceback
 
             traceback.print_exc()
+            
+    def write_quiz_to_file(self, quiz_data: dict) -> None:
+        """Write the quiz data to a JSON file."""
+        quizzes_dir = Path(__file__).parent.parent / "quizzes"
+        quizzes_dir.mkdir(exist_ok=True)
 
+        if self.quiz_path is not None:
+            quiz_file = self.quiz_path
+            quiz_id = quiz_file.stem
+        else:
+            quiz_id = secrets.token_urlsafe(6)
+            quiz_file = quizzes_dir / f"{quiz_id}.json"
+
+        with quiz_file.open("w", encoding="utf-8") as f:
+            json.dump(quiz_data, f, indent=2)
+
+        self.query_one(
+            "#status"
+        ).update(f"[green]Quiz saved as {quiz_id}.json with {len(quiz_data['questions'])} questions")
+
+        if getattr(self.app, 'quiz_file', None) is not None:
+            self.app.quiz_file = quiz_file
+        if getattr(self.app, 'quiz_id', None) is not None:
+            self.app.quiz_id = quiz_id
 
 def main() -> dict | None:
     """Run the quiz creator, then save or update the quiz file."""
@@ -476,21 +512,8 @@ def main() -> dict | None:
     result = app.run()
 
     if result:
-        quizzes_dir = Path(__file__).parent.parent / "quizzes"
-        quizzes_dir.mkdir(exist_ok=True)
-
-        if app.quiz_path is not None:
-            quiz_file = app.quiz_path
-            quiz_id = quiz_file.stem
-        else:
-            quiz_id = secrets.token_urlsafe(6)
-            quiz_file = quizzes_dir / f"{quiz_id}.json"
-
-        with quiz_file.open("w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2)
-
-        print(f"\nQuiz '{result['title']}' saved as {quiz_id}.json")
-        print(f"Location: {quiz_file}")
+        print(f"\nQuiz '{result['title']}' saved as {app.quiz_id}.json")
+        print(f"Location: {app.quiz_file}")
         print(f"Questions: {len(result['questions'])}\n")
 
     return result
@@ -504,6 +527,8 @@ class QuizCreatorApp(App[dict[str, object] | None]):
     
     def __init__(self):
         self.quiz_path: Path | None = None
+        self.quiz_file: Path | None = None
+        self.quiz_id: str | None = None
         super().__init__()
     
     @work

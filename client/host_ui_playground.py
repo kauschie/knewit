@@ -40,7 +40,8 @@ from quiz_preview_log import QuizPreviewLog
 from timedisplay import TimeDisplay
 from basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
 from utils import _host_validate
-from chat import MarkdownChat, RichLogChat
+from chat import RichLogChat
+from quiz_creator import QuizCreator
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
@@ -66,15 +67,17 @@ class MainScreen(Screen):
         # background: $background;
     }
     #left-column { 
-        width: 5fr; 
+        width: 6fr; 
         height: 1fr; 
         padding: 0; 
         margin: 0;
         outline: tall $panel;
+        # content-align: center top;
     }
 
     #quiz-preview { 
         height: 4fr; 
+        width: 100%;
         # background: red;
         content-align: center top;
     }
@@ -128,20 +131,20 @@ class MainScreen(Screen):
     }
 
     #timer-widget {
-        height: 1fr;
+        height: 2;
         margin: 0;
         padding: 0;
-        content-align: left middle;
-        align: left middle;
+        # content-align: right middle;
+        # align: right middle;
     }
     
     #timer-label
     {
-        content-align: left middle;
+        content-align: right middle;
         width: 5fr;
     }
     #timer-display {
-        content-align: left middle;
+        content-align: center middle;
         width: 1fr;
     }
     
@@ -240,6 +243,13 @@ class MainScreen(Screen):
         display: none;
     }
     
+    #quiz-preview-container {
+        width: 100%;
+        height: 4fr;
+        border: solid pink;
+        padding: 1;
+    }
+    
     """
 
     BINDINGS = [
@@ -297,7 +307,8 @@ class MainScreen(Screen):
                 with HorizontalGroup(id="timer-widget"):
                     yield Static("Time Remaining", id="timer-label")
                     yield TimeDisplay(id="timer-display")
-                yield QuizPreviewLog(id="quiz-preview")
+                with Vertical(id="quiz-preview-container"):
+                    yield QuizPreviewLog(id="quiz-preview")
                 with Horizontal(id="session-controls-area", classes="two-grid"):
                     yield Button("Create Quiz", id="create-quiz")
                     yield Button("Load Quiz", id="load-quiz")
@@ -697,8 +708,13 @@ class MainScreen(Screen):
         elif bid == "end-question":
             self.end_question()
         elif bid.startswith("create-quiz"):
-            self.append_chat(user=self.host_name, msg="Created new quiz selected (not implemented)")
-
+            quiz_data = await self.app.push_screen_wait(QuizCreator())
+            if not quiz_data:
+                self.append_chat(user=self.host_name, msg="Quiz creation cancelled.")
+                return
+            self.selected_quiz = quiz_data
+            self.append_chat(user=self.host_name, msg=f"Created quiz: {self.selected_quiz['title']}")
+            self._initialize_quiz()
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.tab.id == "user-controls":
             self._rebuild_user_controls()
@@ -812,16 +828,16 @@ class LoginScreen(Screen):
     def _host_get_values(self) -> dict:
         
         return {
-            "session_id": self.query_one("#session-inputs-input", Input).value.strip(),
-            "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip(),
-            "server_port": self.query_one("#server-inputs-input2", Input).value.strip(),
-            "host_name":  self.query_one("#host-inputs-input", Input).value.strip(),
-            # "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
+            # "session_id": self.query_one("#session-inputs-input", Input).value.strip(),
             # "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
-            # "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
-            # "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
+            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip(),
+            # "server_port": self.query_one("#server-inputs-input2", Input).value.strip(),
+            # "host_name":  self.query_one("#host-inputs-input", Input).value.strip(),
+            "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
+            "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
+            "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }
         
 
@@ -839,6 +855,13 @@ class HostUIPlayground(App):
     Screen {
         # background: $background;
         }
+    
+    QuizCreator {
+        width: 1fr;
+        align: center middle;
+        # content-align: center middle;
+        border: double $accent;
+    }
     """
 
     BINDINGS = [
@@ -851,7 +874,8 @@ class HostUIPlayground(App):
     MODES = {
         "login": LoginScreen,
         "main": MainScreen,
-        # "quiz_selector": QuizSelector
+        "quiz_selector": QuizSelector,
+        "quiz_creator": QuizCreator,
     }
     
     def __init__(self) -> None:
@@ -891,8 +915,8 @@ class HostUIPlayground(App):
         self.update_players(self.players)
         # sample quiz
         self.theme = THEME
-        self.switch_mode("login")
-        # self.switch_mode("main")
+        # self.switch_mode("login")
+        self.switch_mode("main")
 
 if __name__ == "__main__":
     HostUIPlayground().run()

@@ -3,8 +3,8 @@ import asyncio
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.screen import Screen, ModalScreen
-from textual.widgets import Header, Footer, Static, Button, ListView, ListItem, Label
-from textual.containers import Vertical, ScrollableContainer
+from textual.widgets import Header, Footer, Static, Button
+from textual.containers import Vertical, ScrollableContainer, Grid
 from textual.reactive import reactive
 import logging
 import json
@@ -20,7 +20,7 @@ class QuizFileNotFound(Exception):
     """Custom exception for file not found errors."""
     pass
 
-class QuizSelector(Screen[dict]):
+class QuizSelector(ModalScreen[dict]):
     """Select a quiz from saved quizzes."""
     
     CSS = """
@@ -86,7 +86,7 @@ class QuizSelector(Screen[dict]):
     }
     
     .quiz-item:hover {
-        background: $boost 20%;
+        # background: $boost 20%;
     }
     
     .selection-title {
@@ -107,12 +107,13 @@ class QuizSelector(Screen[dict]):
         width: 60%;
         min-height: 3;
         margin-bottom: 1;
-        background: $surface 30%;
-        border: solid $surface;
+        background: $secondary 30%;
+        border: round $boost;
     }
     
     .quiz-select-btn:hover {
-        background: $surface 50%;
+        background: $primary 30%;
+        # background: pink;
     }
     
     #cancel-selection {
@@ -127,6 +128,16 @@ class QuizSelector(Screen[dict]):
     
     Button {
         margin: 1;
+        # background: pink;
+        # background: $primary 50%;
+    }
+    
+    #main-grid {
+        align: center middle;
+        width: 70%;
+        height: 80%;
+        border: thick $accent;
+        padding: 2;
     }
     """
     
@@ -139,26 +150,25 @@ class QuizSelector(Screen[dict]):
 
     def compose(self) -> ComposeResult:
         """Create widgets."""
-        yield Header(show_clock=True, name="Quiz Selector")
-        
-        yield Static("Select a Quiz", id="header")
-        yield Static(self.msg, id="status")
 
-        with ScrollableContainer(id="quiz-list"):
-            if not self.quiz_list:
-                yield Static("No saved quizzes found. Create one first!")
-            else:
-                for quiz in self.quiz_list:
-                    yield Button(
-                        f"{quiz['title']}\n{len(quiz['questions'])} questions",
-                        id=f"quiz-{quiz['quiz_id']}",
-                        classes="quiz-item"
-                    )
-        
-        with Vertical():
-            yield Button("Cancel", id="cancel-btn")
-        
-        yield Footer()
+
+        with Vertical(id="main-grid"):
+            yield Static("Select a Quiz", id="header")
+            yield Static(self.msg, id="status")
+
+            with ScrollableContainer(id="quiz-list"):
+                if not self.quiz_list:
+                    yield Static("No saved quizzes found. Create one first!")
+                else:
+                    for quiz in self.quiz_list:
+                        yield Button(
+                            f"{quiz['title']}\n{len(quiz['questions'])} questions",
+                            id=f"quiz-{quiz['quiz_id']}",
+                            classes="quiz-item"
+                        )
+            
+            with Vertical():
+                yield Button("Cancel", id="cancel-btn")
     
     async def on_mount(self) -> None:
         """Load quizzes on mount."""
