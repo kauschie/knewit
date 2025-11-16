@@ -35,8 +35,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from quiz_types import (
     QuizSession, Quiz, Question, QuizState,
-    create_session, get_session, delete_session
+    create_session, get_session, delete_session, update_session_state
 )
+import quiz_manager
 
 # Heartbeat config
 PING_INTERVAL = 20
@@ -224,20 +225,39 @@ async def ws_endpoint(
                     "quizzes": quizzes
                 }))
             
+            # Configure quiz settings (host only)
+            elif msg_type == "quiz.configure" and is_host_bool and session:
+                auto_advance = data.get("auto_advance")
+                if auto_advance is not None:
+                    session.auto_advance = bool(auto_advance)
+                    await ws.send_text(json.dumps({
+                        "type": "quiz.configured",
+                        "auto_advance": session.auto_advance
+                    }))
+                    print(f"[quiz] configured session={session_id} auto_advance={session.auto_advance}")
+            
             # Start quiz (host only)
             elif msg_type == "quiz.start" and is_host_bool and session:
                 if session.start_quiz():
-                    # Send first question
-                    question = session.next_question()
-                    if question:
-                        await broadcast(session, {
-                            "type": "question.next",
-                            "prompt": question.prompt,
-                            "options": question.options,
-                            "question_num": session.current_question_idx + 1,
-                            "total_questions": len(session.quiz.questions)
-                        })
-                        print(f"[quiz] started in session={session_id}")
+                    # Check if auto_advance mode is enabled
+                    if session.auto_advance:
+                        # Start orchestrator
+                        session.orchestrator_task = asyncio.create_task(
+                            orchestrator_loop(session.id)
+                        )
+                        print(f"[orchestrator] started for session={session_id}")
+                    else:
+                        # Manual mode: send first question immediately
+                        question = session.next_question()
+                        if question:
+                            await broadcast(session, {
+                                "type": "question.next",
+                                "prompt": question.prompt,
+                                "options": question.options,
+                                "question_num": session.current_question_idx + 1,
+                                "total_questions": len(session.quiz.questions)
+                            })
+                    print(f"[quiz] started in session={session_id}")
                 else:
                     await ws.send_text(json.dumps({
                         "type": "error",
@@ -269,20 +289,28 @@ async def ws_endpoint(
             # Submit answer (students)
             elif msg_type == "answer.submit" and session:
                 answer_idx = int(data.get("answer_idx", 0))
-                correct = session.record_answer(player_id, answer_idx)
                 
-                # Send confirmation to player
-                await ws.send_text(json.dumps({
-                    "type": "answer.recorded",
-                    "correct": correct
-                }))
-                
-                # Broadcast updated histogram
-                bins = [session.answer_counts.get(i, 0) for i in range(4)]
-                await broadcast(session, {
-                    "type": "histogram",
-                    "bins": bins
-                })
+                # If orchestrator is active, use its submit handler
+                if session.auto_advance:
+                    correct = await quiz_manager.submit_answer(session, player_id, answer_idx)
+                    await ws.send_text(json.dumps({
+                        "type": "answer.recorded",
+                        "correct": correct
+                    }))
+                else:
+                    # Manual mode: use existing logic
+                    correct = session.record_answer(player_id, answer_idx)
+                    await ws.send_text(json.dumps({
+                        "type": "answer.recorded",
+                        "correct": correct
+                    }))
+                    
+                    # Broadcast updated histogram
+                    bins = [session.answer_counts.get(i, 0) for i in range(4)]
+                    await broadcast(session, {
+                        "type": "histogram",
+                        "bins": bins
+                    })
             
             # Kick player (host only)
             elif msg_type == "player.kick" and is_host_bool and session:
@@ -308,6 +336,16 @@ async def ws_endpoint(
             if is_host_bool:
                 # Host disconnected - close session
                 print(f"[session] host disconnected, closing session={session_id}")
+                
+                # Cancel orchestrator task if running
+                if session.orchestrator_task:
+                    session.orchestrator_task.cancel()
+                    try:
+                        await session.orchestrator_task
+                    except asyncio.CancelledError:
+                        pass
+                    print(f"[orchestrator] cancelled for session={session_id}")
+                
                 await broadcast(session, {
                     "type": "session.closed",
                     "message": "Host disconnected"
@@ -375,6 +413,48 @@ async def ping_loop():
                     # Ignore send errors here; connection cleanup happens elsewhere
                     # (broadcast/remove on send failure or during receive loop).
                     continue
+
+
+async def orchestrator_loop(session_id: str):
+    """Background task that manages timed quiz progression for a session.
+    
+    This loop runs while auto_advance is enabled and handles:
+    - State transitions (READING -> ANSWERING -> REVIEWING)
+    - Automatic question advancement
+    - Broadcasting phase changes to clients
+    """
+    from quiz_types import quiz_sessions
+    
+    print(f"[orchestrator] loop started for session={session_id}")
+    
+    try:
+        while True:
+            session = quiz_sessions.get(session_id)
+            
+            # Exit conditions
+            if not session:
+                print(f"[orchestrator] session {session_id} not found, exiting")
+                break
+            if not session.auto_advance:
+                print(f"[orchestrator] auto_advance disabled for {session_id}, exiting")
+                break
+            if session.state == QuizState.FINISHED:
+                print(f"[orchestrator] quiz finished for {session_id}, exiting")
+                break
+            
+            # Tick the orchestrator state machine
+            await quiz_manager.handle_quiz_tick(session)
+            
+            # Sleep briefly before next tick
+            await asyncio.sleep(0.5)
+    
+    except asyncio.CancelledError:
+        print(f"[orchestrator] loop cancelled for session={session_id}")
+        raise
+    except Exception as e:
+        print(f"[orchestrator] error in loop for session={session_id}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

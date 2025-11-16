@@ -11,7 +11,10 @@ from fastapi import WebSocket
 
 class QuizState(Enum):
     LOBBY = "lobby"
-    ACTIVE = "active"
+    ACTIVE = "active"  # Legacy: kept for backward compatibility
+    READING = "reading"  # New: reading question before answers shown
+    ANSWERING = "answering"  # New: players can submit answers
+    REVIEWING = "reviewing"  # New: showing results before next question
     FINISHED = "finished"
 
 @dataclass
@@ -129,6 +132,12 @@ class QuizSession:
     answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
     connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
     
+    # Orchestrator fields
+    state_change_time: float = field(default_factory=time.time)  # When current state started
+    answers: Dict[str, int] = field(default_factory=dict)  # player_id -> answer_idx (for current question)
+    auto_advance: bool = False  # If True, orchestrator auto-advances; if False, host controls
+    orchestrator_task: Optional[object] = None  # asyncio.Task reference (typed as object to avoid import)
+    
     def add_player(self, player_id: str, name: str) -> Optional[Player]:
         """Add player to lobby. Returns None if name is taken."""
         # Check if name is already taken
@@ -236,3 +245,8 @@ def get_session(session_id: str) -> Optional[QuizSession]:
 def delete_session(session_id: str):
     """Delete a session."""
     quiz_sessions.pop(session_id, None)
+
+def update_session_state(session: QuizSession, new_state: QuizState) -> None:
+    """Update session state and reset state change timer."""
+    session.state = new_state
+    session.state_change_time = time.time()

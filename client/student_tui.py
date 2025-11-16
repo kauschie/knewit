@@ -241,20 +241,61 @@ class StudentTUI(App):
                 self.exit()
             
             elif msg_type == "question.next":
-                # Reading phase - show question, enable answering
+                # Reading phase or manual mode - show question
                 self.current_question = msg.get("prompt", "")
                 self.options = msg.get("options", ["A", "B", "C", "D"])
-                self.can_answer = True  # Enable answering immediately
-                self.query_one("#prompt").update(f"Q: {msg.get('prompt', 'No question')}")
+                
+                # Check if we're in reading phase (options are hidden as "?")
+                is_reading = all(opt == "?" for opt in self.options)
+                
+                if is_reading:
+                    # Orchestrator reading phase - disable buttons
+                    self.can_answer = False
+                    ends_in = msg.get("ends_in", 5)
+                    self.query_one("#prompt").update(
+                        f"Reading question... ({ends_in}s)\n\n{msg.get('prompt', 'No question')}"
+                    )
+                    self.query_one("#status").update("[yellow]Read the question carefully...")
+                else:
+                    # Manual mode - enable immediately
+                    self.can_answer = True
+                    q_num = msg.get("question_num", "?")
+                    total = msg.get("total_questions", "?")
+                    self.query_one("#prompt").update(f"Q{q_num}/{total}: {msg.get('prompt', 'No question')}")
+                    self.query_one("#status").update("[cyan]Answer now!")
+                
                 # Bump question sequence so button IDs are unique per question
                 self._question_seq += 1
-                self._update_options(enable_buttons=True)  # Explicitly enable buttons
+                self._update_options(enable_buttons=not is_reading)
             
             elif msg_type == "question.answers":
-                # Answer phase - show options and enable answering
+                # Orchestrator answering phase - show real options and enable buttons
                 self.options = msg.get("options", ["A", "B", "C", "D"])
                 self.can_answer = True
+                ends_in = msg.get("ends_in", 10)
+                self.query_one("#status").update(f"[green]Answer now! ({ends_in}s remaining)")
                 self._update_options(enable_buttons=True)
+            
+            elif msg_type == "question.results":
+                # Orchestrator reviewing phase - show correct answer
+                self.can_answer = False
+                correct_idx = msg.get("correct_idx", 0)
+                counts = msg.get("counts", [0, 0, 0, 0])
+                ends_in = msg.get("ends_in", 3)
+                
+                # Mark correct answer with checkmark
+                self.options = [
+                    f"{'✓ ' if i == correct_idx else '  '}{opt}"
+                    for i, opt in enumerate(self.options)
+                ]
+                self._update_options(enable_buttons=False)
+                self._draw_bars(counts)
+                self.query_one("#status").update(f"[yellow]Results shown ({ends_in}s)")
+            
+            elif msg_type == "answer.counts":
+                # Live histogram updates during answering phase
+                counts = msg.get("counts", [0, 0, 0, 0])
+                self._draw_bars(counts)
             
             elif msg_type == "histogram":
                 # Server sends histogram with "bins" field

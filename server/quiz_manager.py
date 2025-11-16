@@ -4,8 +4,8 @@ import json
 import time
 from typing import Optional, Dict
 
-from .quiz_types import (
-    QuizSession, QuizState, get_session, update_session_state
+from quiz_types import (
+    QuizSession, QuizState, get_session, update_session_state, Question
 )
 
 READ_TIME = 5  # seconds to read question before answers appear
@@ -36,14 +36,15 @@ async def handle_quiz_tick(session: QuizSession):
     elif session.state == QuizState.REVIEWING:
         if elapsed >= REVIEW_TIME:
             # Move to next question or end quiz
-            if session.current_question_idx + 1 < len(session.questions):
+            if session.quiz and session.current_question_idx + 1 < len(session.quiz.questions):
                 session.current_question_idx += 1
+                session.answers.clear()  # Clear answers for next question
                 update_session_state(session, QuizState.READING)
                 await broadcast_next_question(session)
             else:
                 # Quiz complete
                 await broadcast_final_scores(session)
-                session.state = QuizState.LOBBY
+                update_session_state(session, QuizState.FINISHED)
 
 async def start_quiz(session: QuizSession):
     """Start the quiz, moving from lobby to first question."""
@@ -72,10 +73,16 @@ async def submit_answer(session: QuizSession, player_id: str, answer_idx: int) -
     session.answers[player_id] = answer_idx
     
     # Update score if correct
-    current_q = session.questions[session.current_question_idx]
+    current_q = session.quiz.questions[session.current_question_idx]
     if answer_idx == current_q.correct_idx:
-        # Basic scoring: +1 for correct answer
-        session.scores[player_id] = session.scores.get(player_id, 0) + 1
+        # Update player score
+        player = session.players.get(player_id)
+        if player:
+            player.score += 1
+    
+    # Update answer counts for histogram
+    if answer_idx in session.answer_counts:
+        session.answer_counts[answer_idx] += 1
     
     # Broadcast updated histogram
     await broadcast_answer_counts(session)
@@ -83,26 +90,28 @@ async def submit_answer(session: QuizSession, player_id: str, answer_idx: int) -
 
 async def broadcast_next_question(session: QuizSession):
     """Send the next question to all players (without answers during reading)."""
-    if session.current_question_idx >= len(session.questions):
+    if not session.quiz or session.current_question_idx >= len(session.quiz.questions):
         return
     
-    q = session.questions[session.current_question_idx]
+    q = session.quiz.questions[session.current_question_idx]
     msg = {
         "type": "question.next",
         "question_id": q.id,
         "prompt": q.prompt,
         "options": ["?" for _ in q.options],  # Hide answers during reading
         "state": session.state.value,
-        "ends_in": READ_TIME
+        "ends_in": READ_TIME,
+        "question_num": session.current_question_idx + 1,
+        "total_questions": len(session.quiz.questions)
     }
     await broadcast(session, msg)
 
 async def broadcast_question_answers(session: QuizSession):
     """Show the answer options after reading period."""
-    if session.current_question_idx >= len(session.questions):
+    if not session.quiz or session.current_question_idx >= len(session.quiz.questions):
         return
     
-    q = session.questions[session.current_question_idx]
+    q = session.quiz.questions[session.current_question_idx]
     msg = {
         "type": "question.answers",
         "question_id": q.id,
@@ -114,10 +123,10 @@ async def broadcast_question_answers(session: QuizSession):
 
 async def broadcast_results(session: QuizSession):
     """Send results for current question to all players."""
-    if session.current_question_idx >= len(session.questions):
+    if not session.quiz or session.current_question_idx >= len(session.quiz.questions):
         return
     
-    q = session.questions[session.current_question_idx]
+    q = session.quiz.questions[session.current_question_idx]
     counts = [0] * len(q.options)
     for ans in session.answers.values():
         if 0 <= ans < len(counts):
@@ -135,10 +144,10 @@ async def broadcast_results(session: QuizSession):
 
 async def broadcast_answer_counts(session: QuizSession):
     """Send updated answer counts (during answering phase)."""
-    if session.current_question_idx >= len(session.questions):
+    if not session.quiz or session.current_question_idx >= len(session.quiz.questions):
         return
     
-    q = session.questions[session.current_question_idx]
+    q = session.quiz.questions[session.current_question_idx]
     counts = [0] * len(q.options)
     for ans in session.answers.values():
         if 0 <= ans < len(counts):
@@ -153,14 +162,14 @@ async def broadcast_answer_counts(session: QuizSession):
 async def broadcast_final_scores(session: QuizSession):
     """Send final scores to all players."""
     scores_list = [
-        {"player_id": pid, "score": score}
-        for pid, score in session.scores.items()
+        {"name": p.name, "score": p.score}
+        for p in session.players.values()
     ]
     scores_list.sort(key=lambda x: x["score"], reverse=True)
     
     msg = {
-        "type": "quiz.end",
-        "scores": scores_list
+        "type": "quiz.finished",
+        "leaderboard": scores_list
     }
     await broadcast(session, msg)
 
