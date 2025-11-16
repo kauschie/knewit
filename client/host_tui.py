@@ -43,7 +43,8 @@ class HostTUI(App):
     }
 
     #session-info {
-        height: 1;
+        min-height: 2;
+        height: auto;
         background: $panel;
         padding: 0 1;
         content-align: left middle;
@@ -81,6 +82,17 @@ class HostTUI(App):
     
     Button {
         margin: 1;
+    }
+
+    .label {
+        height: 3;
+        content-align: center middle;
+        padding: 0 1;
+        color: cyan;
+    }
+
+    #toggle-auto {
+        width: 8;
     }
 
     /* initial setup area: center the create button */
@@ -152,6 +164,7 @@ class HostTUI(App):
     current_question = reactive("")
     quiz_loaded = reactive(False)
     quiz_title = reactive("")
+    auto_advance_mode = reactive(False)
     
     def __init__(self, server_url: str):
         super().__init__()
@@ -162,6 +175,30 @@ class HostTUI(App):
         self._exiting = False
         self.quiz_data = None
         self._quizzes_dir = None
+
+    def _ensure_start_button(self):
+        """If session, quiz, and players are present, ensure Start Quiz is visible & enabled."""
+        try:
+            if self.session_id and self.quiz_loaded and self.players:
+                # Ensure controls visible
+                try:
+                    qc = self.query_one("#quiz-controls")
+                    if hasattr(qc, "visible"):
+                        qc.visible = True
+                except Exception:
+                    logger.warning("_ensure_start_button: quiz-controls not found")
+                # Enable start button
+                try:
+                    start_btn = self.query_one("#start-quiz", Button)
+                    if start_btn.disabled:
+                        start_btn.disabled = False
+                        start_btn.label = "Start Quiz"
+                        start_btn.focus()
+                        logger.info("_ensure_start_button: start button enabled")
+                except Exception:
+                    logger.warning("_ensure_start_button: start button missing")
+        except Exception as e:
+            logger.warning(f"_ensure_start_button failed: {e}")
     
     def compose(self) -> ComposeResult:
         """Create widgets."""
@@ -184,6 +221,8 @@ class HostTUI(App):
         with Horizontal(id="quiz-controls"):
             yield Button("Create Quiz", id="create-quiz")
             yield Button("Load Quiz", id="load-quiz")
+            yield Static("Auto-advance:", classes="label")
+            yield Button("OFF", id="toggle-auto", variant="default")
             yield Button("Start Quiz", id="start-quiz", disabled=True)
             yield Button("Next Question", id="next-question", disabled=True)
         
@@ -279,26 +318,73 @@ class HostTUI(App):
                 except Exception as e:
                     # Log any UI update errors for debugging
                     logger.exception(f"Error updating player list: {e}")
+                # Attempt to assert start button state.
+                self._ensure_start_button()
             
             elif msg_type == "quiz.loaded":
                 self.quiz_loaded = True
                 self.quiz_title = msg.get("quiz_title", "")
-                self.query_one("#start-quiz", Button).disabled = False
-                self.query_one("#status").update(f"[green]Quiz loaded: {self.quiz_title}")
+                # Ensure quiz controls are visible (defensive in case overlay remained)
+                try:
+                    qc = self.query_one("#quiz-controls")
+                    if hasattr(qc, "visible"):
+                        qc.visible = True
+                except Exception:
+                    pass
+                # Attempt to enable start button if players already present
+                self._ensure_start_button()
+                self.query_one("#status").update(f"[green]Quiz loaded: {self.quiz_title} — Press 'Start Quiz' to begin")
+            
+            elif msg_type == "quiz.configured":
+                self.auto_advance_mode = msg.get("auto_advance", False)
+                mode_str = "ON" if self.auto_advance_mode else "OFF"
+                self.query_one("#status").update(f"[green]Auto-advance: {mode_str}")
             
             elif msg_type == "question.next":
                 self.current_question = msg.get("prompt", "")
                 q_num = msg.get("question_num", 1)
                 total = msg.get("total_questions", 1)
-                self.query_one("#current").update(
-                    f"Q{q_num}/{total}: {msg.get('prompt', '')}"
-                )
-                self.query_one("#next-question", Button).disabled = False
+                state = msg.get("state", "active")
+                ends_in = msg.get("ends_in")
+                
+                # Build display with optional timer
+                display = f"Q{q_num}/{total}: {msg.get('prompt', '')}"
+                if ends_in and state == "reading":
+                    display += f" [Reading: {ends_in}s]"
+                
+                self.query_one("#current").update(display)
+                
+                # In manual mode, enable next button; in auto mode, disable it
+                if not self.auto_advance_mode:
+                    self.query_one("#next-question", Button).disabled = False
+                    self.query_one("#next-question", Button).label = "Next Question"
+                else:
+                    # In auto mode, could optionally enable as "Skip" button
+                    self.query_one("#next-question", Button).label = "Skip (Auto)"
+                    self.query_one("#next-question", Button).disabled = True
                 self.query_one("#start-quiz", Button).disabled = True
+            
+            elif msg_type == "question.answers":
+                # Orchestrator: answering phase started
+                ends_in = msg.get("ends_in", 10)
+                current_text = self.query_one("#current").renderable
+                self.query_one("#current").update(f"{current_text} [Answering: {ends_in}s]")
+            
+            elif msg_type == "question.results":
+                # Orchestrator: reviewing phase
+                ends_in = msg.get("ends_in", 3)
+                correct_idx = msg.get("correct_idx", 0)
+                current_text = self.query_one("#current").renderable
+                self.query_one("#current").update(f"{current_text} [Results - Correct: {chr(65+correct_idx)}]")
             
             elif msg_type == "histogram":
                 bins = msg.get("bins", [0, 0, 0, 0])
                 self._draw_bars(bins)
+            
+            elif msg_type == "answer.counts":
+                # Live histogram updates during orchestrator answering phase
+                counts = msg.get("counts", [0, 0, 0, 0])
+                self._draw_bars(counts)
             
             elif msg_type == "quiz.finished":
                 leaderboard = msg.get("leaderboard", [])
@@ -325,6 +411,24 @@ class HostTUI(App):
         
         elif button_id == "load-quiz":
             await self._load_quiz()
+        
+        elif button_id == "toggle-auto":
+            # Toggle auto-advance mode
+            self.auto_advance_mode = not self.auto_advance_mode
+            btn = self.query_one("#toggle-auto", Button)
+            if self.auto_advance_mode:
+                btn.label = "ON"
+                btn.variant = "success"
+            else:
+                btn.label = "OFF"
+                btn.variant = "default"
+            
+            # Send configuration to server
+            if self.ws_client:
+                await self.ws_client.send({
+                    "type": "quiz.configure",
+                    "auto_advance": self.auto_advance_mode
+                })
         
         elif button_id == "start-quiz" and self.ws_client:
             await self.ws_client.send({"type": "quiz.start"})
@@ -382,6 +486,9 @@ class HostTUI(App):
     
     async def _load_quiz(self):
         """Load a saved quiz."""
+        if not self.session_id:
+            self.query_one("#status").update("[red]Create a session before loading a quiz")
+            return
         self.query_one("#status").update("[yellow]Loading quiz list...")
         
         try:
@@ -488,6 +595,8 @@ class HostTUI(App):
                     "type": "quiz.load",
                     "quiz": quiz_data
                 })
+                # Immediately try to assert start button (quiz.loaded may arrive after players)
+                self._ensure_start_button()
         except Exception as e:
             self.query_one("#status").update(f"[red]Error loading quiz: {e}")
             import traceback

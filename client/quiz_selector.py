@@ -3,8 +3,8 @@ import asyncio
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.screen import Screen, ModalScreen
-from textual.widgets import Header, Footer, Static, Button
-from textual.containers import Vertical, ScrollableContainer, Grid
+from textual.widgets import Header, Footer, Static, Button, ListView, ListItem, Label
+from textual.containers import Vertical, ScrollableContainer
 from textual.reactive import reactive
 import logging
 import json
@@ -20,7 +20,7 @@ class QuizFileNotFound(Exception):
     """Custom exception for file not found errors."""
     pass
 
-class QuizSelector(ModalScreen[dict]):
+class QuizSelector(Screen[dict]):
     """Select a quiz from saved quizzes."""
     
     CSS = """
@@ -29,115 +29,80 @@ class QuizSelector(ModalScreen[dict]):
         padding: 1;
     }
     
-    QuizSelector {
-        align: center middle;
-        }
-    
     #header {
         height: 3;
         content-align: center middle;
-        # background: $surface;
-        width: 60%;
-        border: thick $boost;
-        text-style: bold;
-        # color: cyan;
-        
+        background: blue;
     }
     
     #status {
         height: 1;
-        width: 60%;
-        content-align: center middle;
-
+        color: yellow;
     }
     
     #quiz-list {
         height: 20;
-        width: 60%;
-        # content-align: center middle;
-        align: center middle;
-        border: solid $accent;
+        border: solid cyan;
         padding: 1;
     }
 
     #cancel-btn {
         margin-top: 1;
-        width: 20%;
-        height: 3;
-        align: center middle;
+        align-horizontal: right;
     }
     
     #quiz-selection {
         height: 100%;
         background: $panel;
-        border: thick $accent;
+        border: thick cyan;
         padding: 2;
         layout: vertical;
-        width: 60%;
-        align: center middle;
     }
     
     .quiz-item {
-        width: 60%;
         height: 3;
         padding: 1;
         margin-bottom: 1;
-        # border: solid green;
+        border: solid green;
     }
     
     .quiz-item:hover {
-        # background: $boost 20%;
+        background: green 20%;
     }
     
     .selection-title {
         height: 3;
         content-align: center middle;
         text-style: bold;
-        width: 60%;
+        color: cyan;
+        background: blue;
     }
     
     .selection-subtitle {
         height: 2;
         content-align: center middle;
         color: yellow;
-        width: 60%;
     }
     
     .quiz-select-btn {
-        width: 60%;
+        width: 100%;
         min-height: 3;
         margin-bottom: 1;
-        background: $secondary 30%;
-        border: round $boost;
+        background: green 30%;
+        border: solid green;
     }
     
     .quiz-select-btn:hover {
-        background: $primary 30%;
-        # background: pink;
+        background: green 50%;
     }
     
     #cancel-selection {
-        width: 60%;
+        width: 100%;
         height: 3;
     }
     
-    Vertical {
-        align: center middle;
-        width: 60%;
-        }
-    
     Button {
         margin: 1;
-        # background: pink;
-        # background: $primary 50%;
-    }
-    
-    #main-grid {
-        align: center middle;
-        width: 70%;
-        height: 80%;
-        border: thick $accent;
-        padding: 2;
     }
     """
     
@@ -150,25 +115,26 @@ class QuizSelector(ModalScreen[dict]):
 
     def compose(self) -> ComposeResult:
         """Create widgets."""
+        yield Header(show_clock=True, name="Quiz Selector")
+        
+        yield Static("Select a Quiz", id="header")
+        yield Static(self.msg, id="status")
 
-
-        with Vertical(id="main-grid"):
-            yield Static("Select a Quiz", id="header")
-            yield Static(self.msg, id="status")
-
-            with ScrollableContainer(id="quiz-list"):
-                if not self.quiz_list:
-                    yield Static("No saved quizzes found. Create one first!")
-                else:
-                    for quiz in self.quiz_list:
-                        yield Button(
-                            f"{quiz['title']}\n{len(quiz['questions'])} questions",
-                            id=f"quiz-{quiz['quiz_id']}",
-                            classes="quiz-item"
-                        )
-            
-            with Vertical():
-                yield Button("Cancel", id="cancel-btn")
+        with ScrollableContainer(id="quiz-list"):
+            if not self.quiz_list:
+                yield Static("No saved quizzes found. Create one first!")
+            else:
+                for quiz in self.quiz_list:
+                    yield Button(
+                        f"{quiz['title']}\n{len(quiz['questions'])} questions",
+                        id=f"quiz-{quiz['quiz_id']}",
+                        classes="quiz-item"
+                    )
+        
+        with Vertical():
+            yield Button("Cancel", id="cancel-btn")
+        
+        yield Footer()
     
     async def on_mount(self) -> None:
         """Load quizzes on mount."""
@@ -186,9 +152,8 @@ class QuizSelector(ModalScreen[dict]):
         """Handle button clicks."""
         button_id = event.button.id
         
-        if button_id == "cancel-btn" or button_id == "cancel-selection":
-            # self.app.switch_mode("main")
-            self.dismiss(None)
+        if button_id == "cancel-btn":
+            self.app.switch_mode("main")
         elif button_id and button_id.startswith("quiz-"):
             # Extract quiz_id
             quiz_id = button_id[5:]  # Remove "quiz-" prefix
@@ -257,7 +222,7 @@ class QuizSelector(ModalScreen[dict]):
         self.quiz_list_widget.remove_children()
         selection_container = self.quiz_list_widget
         # Add title
-        # selection_container.mount(Static("Select a Quiz", classes="selection-title"))
+        selection_container.mount(Static("Select a Quiz", classes="selection-title"))
         selection_container.mount(Static(f"Found {len(self.quiz_list)} saved quizzes", classes="selection-subtitle"))
 
         logger.info("Displaying quiz selection menu.")

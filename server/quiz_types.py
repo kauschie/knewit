@@ -49,9 +49,7 @@ class Player:
     last_pong: Optional[float] = None  # server epoch seconds when last pong received
     latency_ms: Optional[float] = None
     last_seen: Optional[float] = None
-
-    status: str = "active" # This is for timeout and recovery "active" / "stale" / "removed"
-
+    
     def to_dict(self) -> dict:
         return {
             "player_id": self.player_id,

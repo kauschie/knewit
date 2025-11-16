@@ -4,7 +4,7 @@ import string
 from textual.containers import VerticalScroll, Horizontal
 from textual.widgets import Static, Rule
 from textual.reactive import reactive
-from common import logger
+from quiz_selector import logger
 
 
 class QuizPreview(VerticalScroll):

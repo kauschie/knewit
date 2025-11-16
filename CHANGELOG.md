@@ -1039,3 +1039,103 @@ The system is now ready for classroom use with multiple concurrent quiz sessions
 **Document Version**: 1.0  
 **Last Updated**: October 19, 2025  
 **Maintained By**: Development Team
+
+
+
+
+**Update** September 5, 2025
+
+# Knewit – Changes Between Previous Version and Forked Update
+
+This document summarizes what changed between the earlier proof-of-concept version and the later forked update that was merged back. It focuses on architecture, server protocol, client UIs, and new tools/utilities.
+
+## Overview
+
+- Shift from a minimal PoC to a feature-complete terminal quiz platform.
+- Clear separation of concerns: transport (WSClient), data model (quiz_types), and UI (Textual apps).
+- Lobby with live player list, host tools (kick, start, next), and student-friendly flow.
+- Built‑in quiz creation and selection, with on-disk JSON storage.
+- Application-level heartbeat (ping/pong) and reconnect robustness.
+
+## Architecture
+
+- Added `server/quiz_types.py` for typed dataclasses and in-memory session registry.
+  - Entities: Quiz, Question, Player, QuizSession, QuizState.
+  - Global `quiz_sessions` registry with helpers: `create_session`, `get_session`, `delete_session`.
+- Simplified, self-contained server flow in `server/app.py`:
+  - Keeps session state in-process (per worker) and manages host/student connections.
+  - Provides broadcasting helpers (`broadcast`, `broadcast_lobby`).
+  - Adds background heartbeat loop to measure per-player latency.
+- Introduced a reusable transport client `client/ws_client.py` decoupled from UI frameworks.
+
+## Server API and Protocol
+
+- WebSocket endpoint remains `/ws`, now with query params:
+  - `player_id=<nameOrId>`, `is_host=true|false`.
+- Message types (non-exhaustive):
+  - Session and lobby: `welcome`, `session.create` (host), `session.join`, `session.joined`, `lobby.update`, `session.closed`.
+  - Quiz lifecycle: `quiz.load`, `quiz.saved`, `quiz.list`, `quiz.start`, `question.next`, `quiz.finished`.
+  - Answers and results: `answer.submit`, `answer.recorded`, `histogram`.
+  - Admin: `player.kick`.
+  - Heartbeat: server `ping` with `ts`, client `pong` echoes `ts`.
+- Health check: `GET /ping` returns `{ "ok": true }`.
+- Persistence: quizzes saved/loaded as JSON files in `quizzes/` via `Quiz.save_to_file()` and `Quiz.list_saved_quizzes()`.
+
+## Data Model Changes
+
+- Questions carry `id`, `prompt`, `options[4]`, `correct_idx`.
+- Players track `name`, `score`, and runtime metrics `latency_ms`, `last_seen` (from heartbeat).
+- Sessions track connections, players, current question index, and per-question answer counts (histogram bins).
+
+## Host UI (client/host_tui.py)
+
+- New lobby view shows live players and scores; supports kicking.
+- Buttons for Create Session, Create/Load Quiz, Start Quiz, Next Question.
+- Inline quiz selection overlay reading from `quizzes/` folder.
+- Renders answer histogram via `textual-plotext`.
+- Robust WS lifecycle: connects as host, handles server events, cleans up on exit.
+
+## Student UI (client/student_tui.py)
+
+- Join flow with name and session ID; defers `session.join` until server `welcome` arrives for reliability.
+- Displays lobby membership and shows per-player latency when available.
+- During questions: enables answer buttons, shows histograms and final leaderboard.
+- Unique per-question button IDs prevent stale event bindings when moving to the next question.
+
+## Reusable WebSocket Client (client/ws_client.py)
+
+- Single persistent connection with auto-reconnect and capped exponential backoff.
+- Handles heartbeat: replies to `ping` with `pong` including timestamp.
+- Outbound send queue (`asyncio.Queue`) serializes writes; exposes `send()` and async `on_event()` callback for the UI.
+
+## Quiz Tools
+
+- `client/quiz_creator.py`: Full TUI to compose quizzes (title + up to 20 questions), select correct answers, validate, and save JSON to `quizzes/`.
+- `client/quiz_selector.py`: TUI for browsing and selecting saved quizzes.
+
+## Operational Changes
+
+- Application-level heartbeat and lobby updates help detect dead clients and display latency.
+- File I/O for `quiz.save` is offloaded to a thread (`asyncio.to_thread`) to avoid blocking the event loop.
+- CORS middleware enabled for future non-terminal clients.
+
+## Breaking Changes / Migration Notes
+
+- Client connection parameters include `is_host` flag; host must send `session.create` after connect.
+- Message schema changes:
+  - Histograms now come as `{ "type": "histogram", "bins": [a,b,c,d] }`.
+  - Confirmation for answers via `{ "type": "answer.recorded", "correct": bool }`.
+  - Final results emitted as `{ "type": "quiz.finished", "leaderboard": [...] }`.
+- Old timing-based state machine (`server/quiz_manager.py`) is present but not wired into the default server flow.
+
+## Removed/Deprecated
+
+- Legacy demo UIs and ad-hoc clients are replaced by `host_tui.py` and `student_tui.py` using `WSClient`.
+- Any previous implicit join/start behavior replaced with explicit messages and host controls.
+
+## Known Limitations and Next Steps
+
+- Session state is in-memory per process; for scaling horizontally, migrate to a shared store (Redis/DB) and a pub/sub broadcast.
+- Timed phases (reading/answering/reviewing) exist in `quiz_manager.py` but aren’t integrated; wire them in if timed rounds are desired.
+- Add server-side validation for malformed messages and more granular error types.
+- Consider debouncing lobby broadcasts if player churn causes excessive updates.
