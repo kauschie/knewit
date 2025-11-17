@@ -34,14 +34,14 @@ from textual import events, on, work
 from common import logger
 import secrets
 
-from plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
-from quiz_selector import QuizSelector
-from quiz_preview_log import QuizPreviewLog
-from timedisplay import TimeDisplay
-from basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
+from knewit.client.widgets.plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
+from knewit.client.widgets.quiz_selector import QuizSelector
+from knewit.client.widgets.quiz_preview_log import QuizPreviewLog
+from knewit.client.widgets.timedisplay import TimeDisplay
+from knewit.client.widgets.basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
 from utils import _host_validate
-from chat import RichLogChat
-from quiz_creator import QuizCreator
+from knewit.client.widgets.chat import RichLogChat
+from knewit.client.widgets.quiz_creator import QuizCreator
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
