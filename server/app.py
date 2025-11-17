@@ -40,7 +40,7 @@ from quiz_types import (
     create_session, get_session, delete_session
 )
 import logging
-logging.basicConfig(filename='logs/host_log.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(filename='logs/server.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.debug("Logger module loaded from app.py")
@@ -65,18 +65,18 @@ _ping_task: asyncio.Task | None = None
 async def lifespan(app: FastAPI):
     """App lifespan handler."""
     global _ping_task
-    print("[lifespan] starting")
+    await printlog("[lifespan] starting")
     
     _ping_task = asyncio.create_task(ping_loop())
     
     try:
         yield
     finally:
-        print("[lifespan] shutting down")
+        await printlog("[lifespan] shutting down")
         if _ping_task:
             _ping_task.cancel()
             await asyncio.gather(_ping_task, return_exceptions=True)
-        print("[lifespan] bye")
+        await printlog("[lifespan] bye")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -98,6 +98,7 @@ def health_check():
 @app.websocket("/ws")
 async def ws_endpoint(
     ws: WebSocket,
+    session_id: str = "demo",
     player_id: str = "anon",
     is_host: str = "false"
 ):
@@ -107,7 +108,7 @@ async def ws_endpoint(
     session: QuizSession | None = None
     session_id: str | None = None
     
-    print(f"[ws] connect player={player_id} is_host={is_host_bool}")
+    await printlog(f"[ws] connect player={player_id} is_host={is_host_bool}")
     
     try:
         # Send welcome
@@ -119,9 +120,11 @@ async def ws_endpoint(
         
         # Main message loop
         while True:
+            await printlog(f"[ws] waiting for player={player_id} message")
             raw = await ws.receive_text()
             data = json.loads(raw)
             msg_type = data.get("type")
+            await printlog(f"[ws] recv player={player_id} type={msg_type}")
 
             # Update last_seen on ANY inbound message (not only 'pong')
             if session and player_id in session.players:
@@ -176,15 +179,16 @@ async def ws_endpoint(
                     "type": "session.created",
                     "session_id": session_id
                 }))
-                print(f"[session] created session_id={session_id} host={player_id}")
+                await printlog(f"[session] created session_id={session_id} host={player_id}")
             
             # Join session
             elif msg_type == "session.join":
-                print(f"[session] player={player_id} joining session")
+                await printlog(f"[session] player={player_id} joining session")
                 session_id = data.get("session_id")
                 name = data.get("name")
                 
                 if not session_id or not name:
+                    await printlog(f"[session] join failed for player={player_id}, missing session_id or name") 
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Missing session_id or name"
@@ -193,15 +197,18 @@ async def ws_endpoint(
                 
                 session = get_session(session_id)
                 if not session:
+                    await printlog(f"[session] join failed for player={player_id}, session_id={session_id} not found")
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Session not found"
                     }))
+                    
                     continue
                 
                 # Add player
                 player = session.add_player(player_id, name)
                 if not player:
+                    await printlog(f"[session] join failed for player={player_id}, name={name} already taken in session={session_id}")
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Name already taken"
@@ -215,11 +222,10 @@ async def ws_endpoint(
                     "session_id": session_id,
                     "name": name
                 }))
-                
                 # Broadcast updated lobby
                 await broadcast_lobby(session)
-                print(f"[session] {name} joined session_id={session_id}")
-            
+                await printlog(f"[session] {name} joined session_id={session_id}")
+                
             # Load quiz (host only)
             elif msg_type == "quiz.load" and is_host_bool and session:
                 quiz_data = data.get("quiz")
@@ -232,7 +238,7 @@ async def ws_endpoint(
                         "quiz_title": quiz.title,
                         "num_questions": len(quiz.questions)
                     })
-                    print(f"[quiz] loaded quiz={quiz.title} in session={session_id}")
+                    await printlog(f"[quiz] loaded quiz={quiz.title} in session={session_id}")
 
             
             # Start quiz (host only)
@@ -248,7 +254,7 @@ async def ws_endpoint(
                             "question_num": session.current_question_idx + 1,
                             "total_questions": len(session.quiz.questions)
                         })
-                        print(f"[quiz] started in session={session_id}")
+                        await printlog(f"[quiz] started in session={session_id}")
                 else:
                     await ws.send_text(json.dumps({
                         "type": "error",
@@ -277,7 +283,7 @@ async def ws_endpoint(
                             for p in sorted(session.players.values(), key=lambda x: x.score, reverse=True)
                         ]
                     })
-                    print(f"[quiz] finished in session={session_id}")
+                    await printlog(f"[quiz] finished in session={session_id}")
             
             # Submit answer (students)
             elif msg_type == "answer.submit" and session:
@@ -309,7 +315,7 @@ async def ws_endpoint(
                     await kick_ws.close()
                     session.remove_player(kick_player_id)
                     await broadcast_lobby(session)
-                    print(f"[session] kicked player={kick_player_id} from session={session_id}")
+                    await printlog(f"[session] kicked player={kick_player_id} from session={session_id}")
     
             elif msg_type == "chat" and session:
                 msg = data.get("msg", "")
@@ -337,12 +343,12 @@ async def ws_endpoint(
                     mute = player.is_muted
                     prompt = "unmuted" if mute else "muted"
                     player.is_muted = not mute
-                    logger.info(f"[session] player={mute_player_id} in session={session_id} is now {prompt}")
+                    await printlog(f"[session] player={mute_player_id} in session={session_id} is now {prompt}")
                     await broadcast_lobby(session)
                     status = "muted" if mute else "unmuted"
     
     except WebSocketDisconnect:
-        print(f"[ws] disconnect player={player_id}")
+        await printlog(f"[ws] disconnect player={player_id}")
     finally:
         # Cleanup
         if session and player_id in session.connections:
@@ -350,7 +356,7 @@ async def ws_endpoint(
             
             if is_host_bool:
                 # Host disconnected - close session
-                print(f"[session] host disconnected, closing session={session_id}")
+                await printlog(f"[session] host disconnected, closing session={session_id}")
                 await broadcast(session, {
                     "type": "session.closed",
                     "message": "Host disconnected"
@@ -440,7 +446,7 @@ async def ping_loop():
                 from quiz_types import QuizState  # if needed / already imported above
                 for pid in stale_players:
                     session.players[pid].status = "stale"
-                    print(f"[stale] player={pid} in session={session.id}")
+                    await printlog(f"[stale] player={pid} in session={session.id}")
 
             # Drop dead players
             if dead_players:
@@ -453,10 +459,15 @@ async def ping_loop():
                             pass
 
                     session.remove_player(pid)
-                    print(f"[dead] removed player={pid} in session={session.id}")
+                    await printlog(f"[dead] removed player={pid} in session={session.id}")
                 
                 # Notify remaining clients that lobby changed
                 await broadcast_lobby(session)
+
+async def printlog(message: str):
+    """Helper to log messages to both console and file."""
+    print(message)
+    logger.info(message)
 
 if __name__ == "__main__":
     import uvicorn

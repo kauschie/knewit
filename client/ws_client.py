@@ -42,9 +42,12 @@ class WSClient:
         self.send_q: asyncio.Queue[dict] = asyncio.Queue()
         self._stop = False
         self.ready_event = asyncio.Event()
+        self.session_id = url.split("session_id=")[-1].split("&")[0]  # crude extraction
+        self.player_id = url.split("username=")[-1].split("&")[0]
+        logger.debug(f"WSClient initialized for session_id={self.session_id}, player_id={self.player_id}")
 
     async def start(self):
-        logger.debug("WSClient starting reconnect loop...")
+        logger.debug(f"WSClient starting reconnect loop for {self.player_id}...")
         """Run forever (until stop() is called) and keep a live connection.
 
         This method:
@@ -151,7 +154,9 @@ class WSClient:
         logger.debug("WSClient sender started.")
         while True:
             payload = await self.send_q.get()
+            logger.debug(f"Sending payload: {payload} for {self.player_id}...")
             try:
+                
                 await ws.send(json.dumps(payload))
             finally:
                 # Signals that one queue item is fully processed.

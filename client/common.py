@@ -46,7 +46,7 @@ class SessionInterface:
 
         url = f"ws://{self.server_ip}:{self.server_port}/ws" \
             f"?session_id={self.session_id}&username={self.username}"
-        
+        logger.info(f"Connecting to WebSocket URL: {url}")
         self.ws = WSClient(url, self.on_event)
 
         # Use Textual-safe async runner
@@ -99,13 +99,13 @@ class StudentInterface(SessionInterface):
         screen = self.get_main_screen()
 
         if msg_type == "welcome":
-            logger.info("Student contacted server successfully.")
+            logger.debug("Student contacted server successfully.")
             screen.title = f"Contacted server as {self.username}"
             screen.sub_title = f"Session: {self.session_id} 1"
-            screen.append_chat("System", "Connected to server.")
+            await self.send_join()
 
         elif msg_type == "session.joined":
-            logger.info("Student joined session.")
+            logger.info(f"Student joined session {self.session_id}.")
             screen.title = f"Connected as {self.username}"
             screen.sub_title = f"Session: {self.session_id} 2"
             screen.append_chat("System", "Connected to server.")
@@ -119,12 +119,12 @@ class StudentInterface(SessionInterface):
 
         elif msg_type == "quiz.loaded":
             quiz_title = message.get("quiz_title", "Untitled Quiz")
-            logger.info(f"Quiz loaded: {quiz_title}")
+            logger.debug(f"Quiz loaded: {quiz_title}")
             screen.append_chat("System", f"Quiz '{quiz_title}' loaded.")
 
         elif msg_type == "answer.recorded":
             # Optional: lock UI or log confirmation
-            logger.info("Answer recorded by server.")
+            logger.debug("Answer recorded by server.")
 
         elif msg_type == "quiz.finished":
             screen.end_quiz()
@@ -151,7 +151,13 @@ class StudentInterface(SessionInterface):
             await super().on_event(message)
             
 
-
+    async def send_join(self):
+        """Send join session message to server."""
+        await self.send({
+            "type": "session.join",
+            "session_id": self.session_id,
+            "name": self.username
+        })
 
     async def send_answer(self, index: int):
         """Send an answer selection to the server."""
