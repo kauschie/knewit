@@ -87,6 +87,7 @@ class Player:
     last_pong: Optional[float] = None  # server epoch seconds when last pong received
     latency_ms: Optional[float] = None
     last_seen: Optional[float] = None
+    is_muted: bool = False
 
     status: str = "active" # This is for timeout and recovery "active" / "stale" / "removed"
 
@@ -94,10 +95,10 @@ class Player:
         return {
             "player_id": self.player_id,
             "name": self.name,
-            "score": self.score
-        ,
+            "score": self.score,
             # Include latency if available (float ms) so UIs can display it.
-            "latency_ms": None if self.latency_ms is None else round(self.latency_ms, 1)
+            "latency_ms": None if self.latency_ms is None else round(self.latency_ms, 1),
+            "is_muted": self.is_muted,
         }
 
 @dataclass

@@ -20,37 +20,45 @@ methods (update_players, set_quiz_preview) you can later call from
 """
 
 from __future__ import annotations
-
-import random
 import asyncio
-import ipaddress
-import re
-
-from typing import List
-from dataclasses import dataclass
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label, Digits
-from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
-from textual.app import App, ComposeResult
-from textual import events, on, work
-
-
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from server.quiz_types import Quiz, StudentQuestion, Question
+import random
+
+from typing import List
+from textual.screen import Screen
+from textual.messages import Message
+from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, Button, Log
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.app import App, ComposeResult
+from textual import events, work
 
 
+from server.quiz_types import Quiz, StudentQuestion
 from knewit.client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
 from utils import _student_validate
 from knewit.client.widgets.chat import RichLogChat
 from knewit.client.widgets.quiz_question_widget import QuizQuestionWidget
-from common import logger, SessionModel
+from common import StudentInterface
 from ws_client import WSClient
+
+import logging
+logging.basicConfig(filename='logs/host_log.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.debug("Logger module loaded from student_ui.")
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
+
+from textual.message import Message
+
+class TitleUpdate(Message):
+    def __init__(self, new_title: str) -> None:
+        self.new_title = new_title
+        super().__init__()
 
 
 class MainScreen(Screen):
@@ -240,6 +248,9 @@ class MainScreen(Screen):
     
     """
 
+    TITLE = "KnewIt Host UI Playground"
+    SUB_TITLE = "Demo Session"
+
     BINDINGS = [
         ("a", "add_player", "Add player"),
         ("r", "remove_player", "Remove player"),
@@ -259,7 +270,7 @@ class MainScreen(Screen):
         
         # refs populated on_mount
         # general
-        self.username: str | None = None
+
         
         # panel refs
         self.leaderboard: DataTable | None = None
@@ -310,7 +321,10 @@ class MainScreen(Screen):
         self.chat_send = self.query_one("#chat-send", Button)
         self.chat_log   = self.query_one("#chat-log", RichLogChat)
         self.quiz_question_widget = self.query_one("#quiz-question-widget", QuizQuestionWidget)
-        self.username = self.app.login_info.get("username", "Host") if self.app.login_info else "Host"
+        self.username = self.app.session.username
+        # self.title = f"Logged in as {self.username}"
+        # self.sub_title = f"Session: {self.app.session.session_id}"
+        
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
@@ -359,9 +373,9 @@ class MainScreen(Screen):
 
     ## Public API to update the quiz question widget
 
-    def set_quiz_question(self, question: StudentQuestion) -> None:
+    def set_quiz_question(self, question: StudentQuestion, duration:int) -> None:
         if self.quiz_question_widget:
-            self.quiz_question_widget.show_question(question, start_timer=True, duration=5)
+            self.quiz_question_widget.show_question(question, start_timer=True, duration=duration)
 
     def student_load_quiz(self) -> None:
         # check if quiz question is already going
@@ -405,6 +419,16 @@ class MainScreen(Screen):
             self.quiz_question_widget.clear_question()
             self.round_idx = 0
             logger.debug("Quiz ended.")
+            
+    def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
+        if user == "System":
+            priv = "sys"
+        elif user == self.username:
+            priv = "host"
+        if self.chat_log:
+            self.chat_log.append_chat(user, msg, priv)
+
+
     # ---------- Actions ----------
     def action_add_player(self) -> None:
         pid = f"p{random.randint(1000, 9999)}"
@@ -429,13 +453,7 @@ class MainScreen(Screen):
     def action_end_quiz(self) -> None:
         self.end_quiz()
 
-    def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
-        if user == "System":
-            priv = "sys"
-        elif user == self.username:
-            priv = "host"
-        if self.chat_log:
-            self.chat_log.append_chat(user, msg, priv)
+
             # self.chat_log.refresh()
             # self.chat_log.write(msg)
             
@@ -461,7 +479,7 @@ class MainScreen(Screen):
         ]
         
         player_name_list = [p["name"] for p in self.players]
-        player_name_list.append(self.username if self.username else "Host")
+        player_name_list.append(self.username)
         name = random.choice(player_name_list) if player_name_list else "Player1"
         line = random.choice(list_of_random_msgs)
         self.append_chat(user=name, msg=line)
@@ -475,14 +493,24 @@ class MainScreen(Screen):
             self.chat_input.value = ""
             self.append_chat(user=self.username, msg=txt)
     
-    # ---------- Placeholder handlers for the user control buttons ----------
+    
     @work
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = (event.button.id or "")
-    
         if bid == "chat-send":
             self._send_chat_from_input()
+            
+        elif bid.startswith("option-"):
+            # Determine which index the user clicked (A = 0, B = 1, ...)
+            idx = ord(bid[-1].upper()) - ord("A")
+            await self.app.session.send_answer(idx)
 
+
+    def _send_chat_from_input(self) -> None:
+        if self.chat_input and (txt := self.chat_input.value.strip()):
+            self.chat_input.value = ""
+            self.append_chat(user=self.username, msg=txt)
+            asyncio.create_task(self.app.session.send_chat(txt))
 
 
 class LoginScreen(Screen):
@@ -519,7 +547,7 @@ class LoginScreen(Screen):
     ]
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True, name="<!> KnewIt Host UI Login <!>")
+        yield Header(show_clock=True)
         with Vertical(id="login-container"):
             # yield Static("* Server Error Message Placeholder *", classes=[])
             yield BorderedInputContainer(border_title="Session ID",
@@ -541,41 +569,42 @@ class LoginScreen(Screen):
         yield Footer()
         
         # --- unify both triggers on one action ---
-    def action_attempt_login(self) -> None:
+    async def action_attempt_login(self) -> None:
+        # gather input values
         vals = self._student_get_values()
         logger.debug("Attempting login with values:")
         for k,v in vals.items():
             logger.debug(f"Login input: {k} = {v}")
         
+        # perform validation
         ok, msg = _student_validate(vals)
         if not ok:
             self._show_error(msg)
             return
-        self.app.login_info = vals.copy()  # store for later use in MainScreen
-        self.query_one(".error-message").add_class("hidden")
-        if not self._connect_to_server(vals):
+        
+        # try to connect to server
+
+        if not await self._connect_to_server(vals):
+            self.title = "Failed to connect to server."
+            self.query_one(".error-message").add_class("hidden")
             self._show_error("Failed to connect to server.")
             return
-        # success -> switch modes (or emit a custom Message if you prefer)
-        self.app.switch_mode("main")
-        
-    def _connect_to_server(self, vals: dict) -> bool:
-        """Attempt to connect to server with given vals.
-        setup connection stuff here
-          - the logic needs to be moved over from host_tui_old.py and extended
-                (including player information)
 
-        Return True on success, False on failure.
-        """
-        url = f"https://{vals["server_ip"]}:{vals["server_port"]}/ws?player_id={vals["username"]}&is_host=false&session_id={vals["session_id"]}&password={vals["password"]}"
+        self.app.push_screen("main")
         
-        # self.connection = WSClient(url, on_event=)
-        return True  # placeholder for real connection logic
+        
+    async def _connect_to_server(self, vals: dict) -> bool:
+        """Establish WSClient connection and start session."""
+        self.title = "Connecting to server..."
+        self.app.session = StudentInterface.from_dict(vals.copy())
+        success = await self.app.session.start()
+        return success
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         
         if event.button.id == "username-inputs-button":
-            self.action_attempt_login()
+            logger.debug("Login button pressed.")
+            await self.action_attempt_login()
             
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -585,6 +614,7 @@ class LoginScreen(Screen):
     def _student_get_values(self) -> dict:
         
         vals = {
+            "app": self.app,
             "session_id": self.query_one("#session-id-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-input-input", Input).value.strip(),
             "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
@@ -603,7 +633,7 @@ class LoginScreen(Screen):
         # you can also add a CSS class for styling/animation if you like
 
 
-class StudentUIPlayground(App):
+class StudentUIApp(App):
 
 
     CSS = """
@@ -625,12 +655,17 @@ class StudentUIPlayground(App):
         # "quiz_selector": QuizSelector
     }
     
+    SCREENS = {
+        "main": MainScreen,
+        "login": LoginScreen,
+    }
+    
     def __init__(self) -> None:
         super().__init__()
         self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
-        self.login_info: dict = {}
-        
+        # self.login_info: dict = {}
+        self.session: StudentInterface | None = None
         self.quiz: Quiz | None = None
 
 
@@ -669,9 +704,12 @@ class StudentUIPlayground(App):
         self.quiz = Quiz.load_from_file("quizzes/abcd1234.json")
         
         logger.debug(f"Loaded sample quiz: {self.quiz}")
-        self.switch_mode("login")
+        self.push_screen("login")
         
         # self.switch_mode("main")
+        
+    async def on_mode_changed(self, event: App.ModeChanged) -> None:
+        logger.debug(f"Switched to mode: {event.mode}")
 
 if __name__ == "__main__":
-    StudentUIPlayground().run()
+    StudentUIApp().run()
