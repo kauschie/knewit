@@ -17,6 +17,7 @@ import json
 from typing import Awaitable, Callable
 
 import websockets  # pip install websockets
+from common import logger
 
 
 class WSClient:
@@ -33,14 +34,17 @@ class WSClient:
     """
 
     def __init__(self, url: str, on_event: Callable[[dict], Awaitable[None]]):
+        logger.debug("WSClient __init__ called.")
         self.url = url
         self.on_event = on_event
         # asyncio.Queue is a thread-safe (coroutine-safe) FIFO; we use it to
         # serialize all outbound messages through one place.
         self.send_q: asyncio.Queue[dict] = asyncio.Queue()
         self._stop = False
+        self.ready_event = asyncio.Event()
 
     async def start(self):
+        logger.debug("WSClient starting reconnect loop...")
         """Run forever (until stop() is called) and keep a live connection.
 
         This method:
@@ -60,6 +64,7 @@ class WSClient:
                     close_timeout=5,   # Wait 5 seconds for close handshake
                     max_size=2**23,    # Larger message size limit (~8MB)
                 ) as ws:
+                    self.ready_event.set()
                     sender = asyncio.create_task(self._sender(ws))
                     receiver = asyncio.create_task(self._receiver(ws))
                     pending = set()
@@ -89,13 +94,25 @@ class WSClient:
             except Exception as e:
                 # Connection failed or dropped. Wait a bit (exponential backoff)
                 # then try again.
-                print(f"WebSocket error: {e}")
+                self.ready_event.clear()
+                logger.error(f"WebSocket error: {e}")
                 if not self._stop:  # Only sleep if we're not stopping
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, 15)
             else:
                 # If the connection ran to completion "cleanly", reset backoff.
                 backoff = 1
+                
+    async def wait_until_connected(self, timeout: float = 5.0) -> bool:
+        """Wait until the WebSocket connection is established (or timeout)."""
+        try:
+            logger.debug("Waiting for WSClient to connect...")
+            await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.debug(f"WSClient connection timed out after {timeout} seconds.")
+            return False
+        
 
     async def _receiver(self, ws):
         """Receive loop (asyncio Task).
@@ -104,6 +121,7 @@ class WSClient:
           - if it's a 'ping', immediately sends a 'pong' (heartbeat)
           - else, forwards the message dict to the UI via on_event(...)
         """
+        logger.debug("WSClient receiver started.")
         try:
             async for raw in ws:
                 try:
@@ -111,7 +129,7 @@ class WSClient:
 
                     # Heartbeat handling: server pings → we pong
                     if msg.get("type") == "ping":
-                        await ws.send(json.dumps({"type": "pong", "ts": msg.get("ts")}))
+                        await self.send({"type": "pong", "ts": msg.get("ts")})
                         continue
 
                     # Domain events (welcome, question.next, histogram, etc.)
@@ -130,6 +148,7 @@ class WSClient:
         Waits for dicts placed on the send queue and writes them
         to the websocket as JSON strings.
         """
+        logger.debug("WSClient sender started.")
         while True:
             payload = await self.send_q.get()
             try:

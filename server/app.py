@@ -32,11 +32,19 @@ import sys
 from pathlib import Path
 # Add server directory to path so we can import quiz_types
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from quiz_types import (
-    QuizSession, Quiz, Question, QuizState,
+    QuizSession, Quiz, Question, QuizState, StudentQuestion,
     create_session, get_session, delete_session
 )
+import logging
+logging.basicConfig(filename='logs/host_log.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.debug("Logger module loaded from app.py")
+
 
 # Heartbeat config
 PING_INTERVAL = 20
@@ -106,7 +114,7 @@ async def ws_endpoint(
         await ws.send_text(json.dumps({
             "type": "welcome",
             "player_id": player_id,
-            "is_host": is_host_bool
+            "is_host": is_host_bool # prob don't need anymore
         }))
         
         # Main message loop
@@ -172,6 +180,7 @@ async def ws_endpoint(
             
             # Join session
             elif msg_type == "session.join":
+                print(f"[session] player={player_id} joining session")
                 session_id = data.get("session_id")
                 name = data.get("name")
                 
@@ -224,30 +233,7 @@ async def ws_endpoint(
                         "num_questions": len(quiz.questions)
                     })
                     print(f"[quiz] loaded quiz={quiz.title} in session={session_id}")
-            
-            # Save quiz (host only)
-            elif msg_type == "quiz.save" and is_host_bool:
-                quiz_data = data.get("quiz")
-                if quiz_data:
-                    quiz = Quiz.from_dict(quiz_data)
-                    # Offload synchronous file I/O to a thread so we don't block the
-                    # event loop. `save_to_file` performs normal file writes.
-                    filepath = await asyncio.to_thread(quiz.save_to_file)
 
-                    await ws.send_text(json.dumps({
-                        "type": "quiz.saved",
-                        "filepath": filepath,
-                        "quiz_id": quiz.quiz_id
-                    }))
-                    print(f"[quiz] saved quiz={quiz.title} to {filepath}")
-            
-            # List saved quizzes
-            elif msg_type == "quiz.list":
-                quizzes = Quiz.list_saved_quizzes()
-                await ws.send_text(json.dumps({
-                    "type": "quiz.list",
-                    "quizzes": quizzes
-                }))
             
             # Start quiz (host only)
             elif msg_type == "quiz.start" and is_host_bool and session:
@@ -273,13 +259,15 @@ async def ws_endpoint(
             elif msg_type == "question.next" and is_host_bool and session:
                 question = session.next_question()
                 if question:
+                    sq = StudentQuestion.from_question(question)
+                    sq["index"] = session.current_question_idx
+                    sq["total"] = len(session.quiz.questions)
                     await broadcast(session, {
                         "type": "question.next",
-                        "prompt": question.prompt,
-                        "options": question.options,
-                        "question_num": session.current_question_idx + 1,
-                        "total_questions": len(session.quiz.questions)
+                        "question": sq,
+                        "duration": data.get("duration", 30)
                     })
+                    
                 else:
                     # Quiz finished
                     await broadcast(session, {
@@ -302,12 +290,12 @@ async def ws_endpoint(
                     "correct": correct
                 }))
                 
-                # Broadcast updated histogram
-                bins = [session.answer_counts.get(i, 0) for i in range(4)]
-                await broadcast(session, {
-                    "type": "histogram",
-                    "bins": bins
-                })
+                # # Broadcast updated histogram
+                # bins = [session.answer_counts.get(i, 0) for i in range(4)]
+                # await broadcast(session, {
+                #     "type": "histogram",
+                #     "bins": bins
+                # })
             
             # Kick player (host only)
             elif msg_type == "player.kick" and is_host_bool and session:
@@ -322,6 +310,36 @@ async def ws_endpoint(
                     session.remove_player(kick_player_id)
                     await broadcast_lobby(session)
                     print(f"[session] kicked player={kick_player_id} from session={session_id}")
+    
+            elif msg_type == "chat" and session:
+                msg = data.get("msg", "")
+                player = session.players.get(player_id)
+                name = player.name if player else "Unknown"
+                if player.is_muted:
+                    await ws.send_text(json.dumps({
+                        "type": "error",
+                        "message": "You are muted"
+                    }))
+                    continue
+
+                # Broadcast chat message to all in session
+                await broadcast(session, {
+                    "type": "chat",
+                    "player_id": player_id,
+                    "name": name,
+                    "msg": msg
+                })
+                
+            elif msg_type == "player.mute" and is_host_bool and session:
+                mute_player_id = data.get("player_id")
+                if mute_player_id and mute_player_id in session.players:
+                    player = session.players[mute_player_id]
+                    mute = player.is_muted
+                    prompt = "unmuted" if mute else "muted"
+                    player.is_muted = not mute
+                    logger.info(f"[session] player={mute_player_id} in session={session_id} is now {prompt}")
+                    await broadcast_lobby(session)
+                    status = "muted" if mute else "unmuted"
     
     except WebSocketDisconnect:
         print(f"[ws] disconnect player={player_id}")
