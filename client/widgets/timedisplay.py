@@ -57,12 +57,22 @@ class TimeDisplay(Static):
 
     def reset(self, seconds: float | None = None) -> None:
         """Reset to full duration (optionally change duration)."""
+
         if seconds is not None:
             self.duration = float(seconds)
         self._elapsed_base = 0.0
+            # set _t0 to the current time (not the function object)
+        self._t0 = 0.0
         self._running = False
-        self._ticker.pause()
+        self._ticker.reset()
         self.remaining = self.duration
+        # ensure the display updates immediately after a reset
+        self._render_remaining()
+        self.refresh(repaint=True)
+
+    def is_running(self) -> bool:
+        """Check if the timer is currently running."""
+        return self._running
 
     # ----- internals --------------------------------------------------------
 
@@ -89,3 +99,10 @@ class TimeDisplay(Static):
         # Format MM:SS.ss
         minutes, seconds = divmod(self.remaining, 60)
         self.update(f"{int(minutes):02d}:{seconds:05.2f}")
+        
+    def get_elapsed(self) -> float:
+        """Get elapsed time since start."""
+        if self._running:
+            return self._elapsed_base + (monotonic() - self._t0)
+        else:
+            return self._elapsed_base

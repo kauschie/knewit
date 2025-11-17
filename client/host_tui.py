@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 from textual_plotext import PlotextPlot
 
 from ws_client import WSClient
-from quiz_creator import QuizCreator
-from quiz_selector import QuizSelector
+from knewit.client.widgets.quiz_creator import QuizCreator
+from knewit.client.widgets.quiz_selector import QuizSelector
 
 LABELS = ["A", "B", "C", "D"]
 

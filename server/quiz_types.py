@@ -39,6 +39,44 @@ class Question:
         )
 
 @dataclass
+class StudentQuestion:
+    """Question without the correct answer (for student view)."""
+    id: str
+    prompt: str
+    options: List[str]
+    index: int
+    total: int
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "prompt": self.prompt,
+            "options": self.options,
+            "index": self.index,
+            "total": self.total
+        }
+    
+    @classmethod
+    def from_question(cls, question: Question) -> "StudentQuestion":
+        return cls(
+            id=question.id,
+            prompt=question.prompt,
+            options=question.options,
+            index=0,  # default index
+            total=0   # default total
+        )
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "StudentQuestion":
+        return cls(
+            id=data["id"],
+            prompt=data["prompt"],
+            options=data["options"],
+            index=data.get("index", 0),
+            total=data.get("total", 0)
+        )
+
+@dataclass
 class Player:
     """A player in a quiz session."""
     player_id: str
@@ -68,6 +106,7 @@ class Quiz:
     title: str
     questions: List[Question]
     quiz_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+
     
     def to_dict(self) -> dict:
         return {
@@ -75,14 +114,6 @@ class Quiz:
             "title": self.title,
             "questions": [q.to_dict() for q in self.questions]
         }
-    
-    @classmethod
-    def from_dict(cls, data: dict) -> "Quiz":
-        return cls(
-            quiz_id=data.get("quiz_id", str(uuid.uuid4())[:8]),
-            title=data["title"],
-            questions=[Question.from_dict(q) for q in data["questions"]]
-        )
     
     def save_to_file(self, directory: str = "quizzes"):
         """Save quiz to JSON file."""
@@ -93,12 +124,21 @@ class Quiz:
         return str(filepath)
     
     @classmethod
+    def from_dict(cls, data: dict) -> "Quiz":
+        return cls(
+            quiz_id=data.get("quiz_id", str(uuid.uuid4())[:8]),
+            title=data["title"],
+            questions=[Question.from_dict(q) for q in data["questions"]]
+        )
+    
+    @classmethod
     def load_from_file(cls, filepath: str) -> "Quiz":
         """Load quiz from JSON file."""
         with open(filepath, 'r') as f:
             data = json.load(f)
         return cls.from_dict(data)
-    
+
+
     @classmethod
     def list_saved_quizzes(cls, directory: str = "quizzes") -> List[dict]:
         """List all saved quizzes."""
