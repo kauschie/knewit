@@ -8,7 +8,13 @@ from textual.containers import Horizontal, Vertical
 from textual_plotext import PlotextPlot
 from textual.reactive import reactive
 
-from ws_client import WSClient
+from pathlib import Path
+# Add server directory to path so we can import quiz_types
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
+from client.ws_client import WSClient
 
 LABELS = ["A", "B", "C", "D"]
 

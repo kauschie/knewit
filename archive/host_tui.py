@@ -14,8 +14,13 @@ logging.basicConfig(filename='logs/host_tui.log', level=logging.INFO, format='%(
 logger = logging.getLogger(__name__)
 
 from textual_plotext import PlotextPlot
-
-from ws_client import WSClient
+import sys
+from pathlib import Path
+# Add server directory to path so we can import quiz_types
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from client.ws_client import WSClient
 from knewit.client.widgets.quiz_creator import QuizCreator
 from knewit.client.widgets.quiz_selector import QuizSelector
 
