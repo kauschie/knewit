@@ -848,7 +848,7 @@ class LoginScreen(Screen):
         # you can also add a CSS class for styling/animation if you like
 
 
-class HostUIPlayground(App):
+class HostUIApp(App):
 
 
     CSS = """
@@ -919,4 +919,4 @@ class HostUIPlayground(App):
         self.switch_mode("main")
 
 if __name__ == "__main__":
-    HostUIPlayground().run()
+    HostUIApp().run()
