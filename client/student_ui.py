@@ -20,28 +20,21 @@ methods (update_players, set_quiz_preview) you can later call from
 """
 
 from __future__ import annotations
-
-import random
-import asyncio
-import ipaddress
-import re
-
-from typing import List
-from dataclasses import dataclass
-from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label, Digits
-from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
-from textual.app import App, ComposeResult
-from textual import events, on, work
-
-
 import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from server.quiz_types import Quiz, StudentQuestion, Question
+import random
+
+from typing import List
+from textual.screen import Screen
+from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, Button, Log
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.app import App, ComposeResult
+from textual import events, work
 
 
+from server.quiz_types import Quiz, StudentQuestion
 from knewit.client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
 from utils import _student_validate
 from knewit.client.widgets.chat import RichLogChat
@@ -259,7 +252,7 @@ class MainScreen(Screen):
         
         # refs populated on_mount
         # general
-        self.username: str | None = None
+
         
         # panel refs
         self.leaderboard: DataTable | None = None
@@ -310,7 +303,9 @@ class MainScreen(Screen):
         self.chat_send = self.query_one("#chat-send", Button)
         self.chat_log   = self.query_one("#chat-log", RichLogChat)
         self.quiz_question_widget = self.query_one("#quiz-question-widget", QuizQuestionWidget)
-        self.username = self.app.login_info.get("username", "Host") if self.app.login_info else "Host"
+        self.username = self.app.session.username
+        self.title = f"Logged in as {self.username}"
+        
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
@@ -405,6 +400,16 @@ class MainScreen(Screen):
             self.quiz_question_widget.clear_question()
             self.round_idx = 0
             logger.debug("Quiz ended.")
+            
+    def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
+        if user == "System":
+            priv = "sys"
+        elif user == self.username:
+            priv = "host"
+        if self.chat_log:
+            self.chat_log.append_chat(user, msg, priv)
+
+
     # ---------- Actions ----------
     def action_add_player(self) -> None:
         pid = f"p{random.randint(1000, 9999)}"
@@ -429,13 +434,7 @@ class MainScreen(Screen):
     def action_end_quiz(self) -> None:
         self.end_quiz()
 
-    def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
-        if user == "System":
-            priv = "sys"
-        elif user == self.username:
-            priv = "host"
-        if self.chat_log:
-            self.chat_log.append_chat(user, msg, priv)
+
             # self.chat_log.refresh()
             # self.chat_log.write(msg)
             
@@ -461,7 +460,7 @@ class MainScreen(Screen):
         ]
         
         player_name_list = [p["name"] for p in self.players]
-        player_name_list.append(self.username if self.username else "Host")
+        player_name_list.append(self.username)
         name = random.choice(player_name_list) if player_name_list else "Player1"
         line = random.choice(list_of_random_msgs)
         self.append_chat(user=name, msg=line)
@@ -551,9 +550,9 @@ class LoginScreen(Screen):
         if not ok:
             self._show_error(msg)
             return
-        self.app.login_info = vals.copy()  # store for later use in MainScreen
-        self.query_one(".error-message").add_class("hidden")
+        self.app.session = SessionModel.from_dict(vals.copy())  # store for later use in App
         if not self._connect_to_server(vals):
+            self.query_one(".error-message").add_class("hidden")
             self._show_error("Failed to connect to server.")
             return
         # success -> switch modes (or emit a custom Message if you prefer)
@@ -603,7 +602,7 @@ class LoginScreen(Screen):
         # you can also add a CSS class for styling/animation if you like
 
 
-class StudentUIPlayground(App):
+class StudentUIApp(App):
 
 
     CSS = """
@@ -629,8 +628,8 @@ class StudentUIPlayground(App):
         super().__init__()
         self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
-        self.login_info: dict = {}
-        
+        # self.login_info: dict = {}
+        self.session: SessionModel | None = None
         self.quiz: Quiz | None = None
 
 
@@ -674,4 +673,4 @@ class StudentUIPlayground(App):
         # self.switch_mode("main")
 
 if __name__ == "__main__":
-    StudentUIPlayground().run()
+    StudentUIApp().run()

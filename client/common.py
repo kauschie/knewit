@@ -18,6 +18,16 @@ class SessionModel:
 
     ws: Optional[WSClient] = field(default=None, init=False)
     is_connected: bool = False
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "SessionModel":
+        return cls(
+            server_ip=data.get("server_ip", ""),
+            server_port=data.get("server_port", 0),
+            session_id=data.get("session_id", ""),
+            username=data.get("username", ""),
+            password=data.get("password", "")
+        )
 
     async def connect(self) -> bool:
         """Attempt to connect and initialize WebSocket session."""
