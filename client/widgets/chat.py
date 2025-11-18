@@ -88,7 +88,14 @@ class RichLogChat(RichLog):
         prefix = Text(datetime.now().strftime("[%H:%M:%S] "), style="dim")
         prefix.append(user, style={"host":"bold magenta","mod":"bold cyan","sys":"bold yellow"}.get(role,"bold green"))
         prefix.append(": ")
-        line = Text.assemble(prefix, Text.from_markup(msg))
+        
+        try:
+            t = Text.from_markup(msg)
+        except Exception as e:
+            logger.error(f"Error parsing markup in chat message: {e}")
+            t = Text(msg)
+
+        line = Text.assemble(prefix, t)
         self.history.append(line)
         # no width= -> allow expand/shrink to work
         self.write(line, expand=True, shrink=True)
