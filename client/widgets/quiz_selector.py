@@ -9,7 +9,7 @@ from textual.reactive import reactive
 import logging
 import json
 
-QUIZ_DIR = Path(__file__).parent.parent / "quizzes"
+QUIZ_DIR = Path(__file__).parent.parent.parent / "quizzes"
 
 logging.basicConfig(filename='logs/quiz_selector.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
