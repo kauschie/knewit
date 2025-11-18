@@ -24,6 +24,7 @@ class SessionInterface:
     ws_task: Optional[asyncio.Task] = field(default=None, init=False)
     is_connected: bool = False
     app: App | None = None
+    ready_event: asyncio.Event = field(default_factory=asyncio.Event)
 
     @classmethod
     def from_dict(cls, data):
@@ -105,7 +106,8 @@ class StudentInterface(SessionInterface):
         elif msg_type == "session.joined":
             logger.info(f"Student joined session {self.session_id}.")
             screen.title = f"Connected as {self.username}"
-            screen.sub_title = f"Session: {self.session_id} 2"
+            screen.sub_title = f"Session: {self.session_id}"
+            self.ready_event.set()
             screen.append_chat("System", "Connected to server.")
             screen.student_load_quiz()
 
@@ -143,7 +145,10 @@ class StudentInterface(SessionInterface):
         elif msg_type == "error":
             logger.error(f"Server error: {message.get('detail')}")
             screen.append_chat("System", f"Error: {message.get('detail')}")
-
+        elif msg_type == "reject.pw":
+            logger.error("Password rejected by server.")
+            screen.append_chat("System", "Error: Incorrect password.")
+            screen._show_error(message["msg"])
         else:
             logger.debug(f"[StudentInterface] Unhandled message type: {msg_type}")
             await super().on_event(message)
@@ -156,6 +161,16 @@ class StudentInterface(SessionInterface):
             "name": self.username,
             "password": self.password
         })
+        
+    async def wait_until_join(self, timeout: float = 10.0) -> bool:
+        """Wait until the session has been joined (or timeout)."""
+        try:
+            logger.debug("Waiting for joined message to arrive...")
+            await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.debug(f"Timed out waiting for session join after {timeout} seconds.")
+            return False
 
     async def send_answer(self, index: int):
         """Send an answer selection to the server."""
@@ -174,7 +189,7 @@ class StudentInterface(SessionInterface):
 
 @dataclass
 class HostInterface(SessionInterface):
-    ready_event: asyncio.Event = field(default_factory=asyncio.Event)
+
 
     async def on_event(self, message: dict):
         msg_type = message.get("type")

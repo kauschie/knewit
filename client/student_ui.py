@@ -585,20 +585,58 @@ class LoginScreen(Screen):
         
         # try to connect to server
         self.query_one(".error-message").add_class("hidden")
-        if not await self._connect_to_server(vals):
+        success, msg = await self._connect_to_server(vals)
+        if not success:
             self.title = "Failed to connect to server."
-            self._show_error("Failed to connect to server.")
+            self._show_error(msg)
+            logger.debug(f"Login failed, staying on login screen: {msg}")
             return
 
-        self.app.push_screen("main")
-        
-        
-    async def _connect_to_server(self, vals: dict) -> bool:
+
+
+    async def _connect_to_server(self, vals: dict) -> tuple[bool, str]:
         """Establish WSClient connection and start session."""
         self.title = "Connecting to server..."
-        self.app.session = StudentInterface.from_dict(vals.copy())
-        success = await self.app.session.start()
-        return success
+        
+        # establish connection if not already connected
+        if self.app.session is None or not self.app.session.is_connected:
+            # handshake with server and start session
+            self.app.session = StudentInterface.from_dict(vals.copy())
+            success = await self.app.session.start()
+        
+            if not success:
+                return False, "Failed to establish connection with server."
+        else:
+            self.app.session.app = vals["app"]
+            self.app.session.session_id = vals["session_id"]
+            self.app.session.username = vals["username"]
+            self.app.session.password = vals["password"]
+            self.app.session.server_ip = vals["server_ip"]
+            self.app.session.server_port = vals["server_port"]
+            
+            # self.app.session.ready_event.set()  # set the event to indicate connection is ready from previous attempt
+            logger.debug("Reusing existing session connection.")
+
+        # authenticate / join session
+        try:
+            if not self.app.session.is_connected:
+                # join comes from welcome message handler
+                join_success = await self.app.session.wait_until_join(timeout=5.0)
+            else:
+                await self.app.session.send_join()
+                join_success = await self.app.session.wait_until_join(timeout=5.0)
+
+            if not join_success:
+                self.app.session.ready_event.clear()  # reset for future attempts
+                return False, "Failed to join session. Check session ID and password."
+
+        except asyncio.TimeoutError:
+            return False, "Timed out waiting for session join."
+
+        self.app.push_screen("main")
+        return True, "Connected successfully."
+        
+        
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         
