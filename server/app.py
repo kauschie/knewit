@@ -96,155 +96,198 @@ def health_check():
 
 
 @app.websocket("/ws")
-async def ws_endpoint(
-    ws: WebSocket,
-    session_id: str = "demo",
-    player_id: str = "anon",
-    is_host: str = "false"
-):
-    """WebSocket endpoint for quiz sessions."""
+async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
+    """
+    Modernized WebSocket endpoint for KnewIt.
+    - Host identified dynamically via session.create.
+    - Students join via session.join.
+    - All logic remains inside this handler for simplicity.
+    """
+
     await ws.accept()
-    is_host_bool = is_host.lower() == "true"
-    session: QuizSession | None = None
-    session_id: str | None = None
-    
-    await printlog(f"[ws] connect player={player_id} is_host={is_host_bool}")
-    
+
+    # Per-connection state
+    conn = {
+        "ws": ws,
+        "player_id": player_id,
+        "session": None,     # Will point to QuizSession
+        "is_host": False,    # True after session.create
+        "attempts": 3        # Password retries
+    }
+
+    await printlog(f"[ws] connected player_id={player_id}")
+
+    # Send initial welcome to client
+    await ws.send_text(json.dumps({
+        "type": "welcome",
+        "player_id": player_id,
+        "is_host": False
+    }))
+
     try:
-        # Send welcome
-        await ws.send_text(json.dumps({
-            "type": "welcome",
-            "player_id": player_id,
-            "is_host": is_host_bool # prob don't need anymore
-        }))
-        
-        # Main message loop
         while True:
-            await printlog(f"[ws] waiting for player={player_id} message")
             raw = await ws.receive_text()
             data = json.loads(raw)
             msg_type = data.get("type")
+
             await printlog(f"[ws] recv player={player_id} type={msg_type}")
 
-            # Update last_seen on ANY inbound message (not only 'pong')
-            if session and player_id in session.players:
+            # Update last_seen for any inbound message
+            if conn["session"] and player_id in conn["session"].players:
                 import time
-                player = session.players.get(player_id)
-                if player:
-                    player.last_seen = time.time()
-            
-            # Heartbeat (client pong replies to our application-level ping)
-            if msg_type == "pong":
-                # Expect client to echo back the server ts we sent in ping.
-                ts = data.get("ts")
-                try:
-                    ts = float(ts) if ts is not None else None
-                except Exception:
-                    ts = None
+                now = time.time()
+                player = conn["session"].players[player_id]
+                player.last_seen = now
 
-                if ts and session and player_id in session.players:
-                    # Compute RTT (server_now - ts) in milliseconds
+            # ------------------------------------------------------
+            # HEARTBEAT
+            # ------------------------------------------------------
+            if msg_type == "pong":
+                if conn["session"]:
                     import time
                     now = time.time()
-                    latency_ms = (now - ts) * 1000.0
-
-                    player = session.players.get(player_id)
-                    if player:
-                        player.last_pong = now
-                        player.latency_ms = latency_ms
-                        player.last_seen = now
-                        # Broadcast updated lobby so UIs can show latency next to names
-                        await broadcast_lobby(session)
-
-                        # If previously stale, mark active again
-                        recovered = False
-                        if player.status == "stale":
-                            player.status = "active"
-                            recovered = True
-                            print(f"[recover] player={player_id} is active again in session={session.id}")
-                        
-                        if recovered:    
-                            await broadcast_lobby(session)
-                
-                # Nothing more to do for heartbeat messages.
+                    p = conn["session"].players.get(player_id)
+                    if p:
+                        p.last_pong = now
+                        p.last_seen = now
+                        p.latency_ms = (now - data.get("ts", now)) * 1000
                 continue
-            
-            # Session creation (host only)
-            elif msg_type == "session.create" and is_host_bool:
-                session = create_session(player_id)
-                session_id = session.id
+
+            # ------------------------------------------------------
+            # HOST CREATES SESSION
+            # ------------------------------------------------------
+            if msg_type == "session.create":
+                conn["is_host"] = True
+                sid = data.get("session_id") or session_id
+                pw = data.get("password")
+
+                await printlog(
+                    f"[session] host={player_id} creating session sid={sid}"
+                )
+
+                try:
+                    session = create_session(
+                        host_id=player_id,
+                        session_id=sid,
+                        password=pw
+                    )
+                except ValueError as e:
+                    await ws.send_text(json.dumps({
+                        "type": "error",
+                        "message": str(e)
+                    }))
+                    continue
+
+                conn["session"] = session
                 session.connections[player_id] = ws
-                
+
                 await ws.send_text(json.dumps({
                     "type": "session.created",
-                    "session_id": session_id
+                    "session_id": session.id,
+                    "host": player_id
                 }))
-                await printlog(f"[session] created session_id={session_id} host={player_id}")
-            
-            # Join session
-            elif msg_type == "session.join":
-                await printlog(f"[session] player={player_id} joining session")
-                session_id = data.get("session_id")
+
+                await printlog(
+                    f"[session] created session id={session.id} host={player_id}"
+                )
+
+                continue
+
+            # ------------------------------------------------------
+            # STUDENT JOINS SESSION
+            # ------------------------------------------------------
+            if msg_type == "session.join":
+                sid = data.get("session_id")
                 name = data.get("name")
-                
-                if not session_id or not name:
-                    await printlog(f"[session] join failed for player={player_id}, missing session_id or name") 
+                pw = data.get("password")
+
+                await printlog(
+                    f"[session] player={player_id} join attempt sid={sid}"
+                )
+
+                if not sid or not name:
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Missing session_id or name"
                     }))
                     continue
-                
-                session = get_session(session_id)
+
+                session = get_session(sid)
                 if not session:
-                    await printlog(f"[session] join failed for player={player_id}, session_id={session_id} not found")
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Session not found"
                     }))
-                    
                     continue
-                
+
+                # Password
+                if session.password:
+                    if pw != session.password:
+                        conn["attempts"] -= 1
+                        if conn["attempts"] <= 0:
+                            await ws.send_text(json.dumps({
+                                "type": "reject.pw",
+                                "message": "Too many incorrect password attempts"
+                            }))
+                            break
+
+                        await ws.send_text(json.dumps({
+                            "type": "reject.pw",
+                            "message": f"Incorrect password. {conn['attempts']} attempts left."
+                        }))
+                        continue
+
                 # Add player
                 player = session.add_player(player_id, name)
                 if not player:
-                    await printlog(f"[session] join failed for player={player_id}, name={name} already taken in session={session_id}")
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Name already taken"
                     }))
                     continue
-                
+
+                conn["session"] = session
                 session.connections[player_id] = ws
-                
+
                 await ws.send_text(json.dumps({
                     "type": "session.joined",
-                    "session_id": session_id,
+                    "session_id": session.id,
                     "name": name
                 }))
-                # Broadcast updated lobby
+
                 await broadcast_lobby(session)
-                await printlog(f"[session] {name} joined session_id={session_id}")
-                
-            # Load quiz (host only)
-            elif msg_type == "quiz.load" and is_host_bool and session:
+                continue
+
+            # ------------------------------------------------------
+            # Reject messages until session exists
+            # ------------------------------------------------------
+            if not conn["session"]:
+                await ws.send_text(json.dumps({
+                    "type": "error",
+                    "message": "No active session"
+                }))
+                continue
+
+            session = conn["session"]
+
+            # ------------------------------------------------------
+            # HOST ONLY ACTIONS
+            # ------------------------------------------------------
+            if msg_type == "quiz.load" and conn["is_host"]:
                 quiz_data = data.get("quiz")
                 if quiz_data:
                     quiz = Quiz.from_dict(quiz_data)
                     session.load_quiz(quiz)
-                    
+
                     await broadcast(session, {
                         "type": "quiz.loaded",
                         "quiz_title": quiz.title,
                         "num_questions": len(quiz.questions)
                     })
-                    await printlog(f"[quiz] loaded quiz={quiz.title} in session={session_id}")
+                continue
 
-            
-            # Start quiz (host only)
-            elif msg_type == "quiz.start" and is_host_bool and session:
+            if msg_type == "quiz.start" and conn["is_host"]:
                 if session.start_quiz():
-                    # Send first question
                     question = session.next_question()
                     if question:
                         await broadcast(session, {
@@ -254,122 +297,125 @@ async def ws_endpoint(
                             "question_num": session.current_question_idx + 1,
                             "total_questions": len(session.quiz.questions)
                         })
-                        await printlog(f"[quiz] started in session={session_id}")
                 else:
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "No quiz loaded"
                     }))
-            
-            # Next question (host only)
-            elif msg_type == "question.next" and is_host_bool and session:
+                continue
+
+            if msg_type == "question.next" and conn["is_host"]:
                 question = session.next_question()
                 if question:
                     sq = StudentQuestion.from_question(question)
-                    sq["index"] = session.current_question_idx
-                    sq["total"] = len(session.quiz.questions)
+                    sq.index = session.current_question_idx
+                    sq.total = len(session.quiz.questions)
+
                     await broadcast(session, {
                         "type": "question.next",
-                        "question": sq,
-                        "duration": data.get("duration", 30)
+                        "question": sq.to_dict()
                     })
-                    
                 else:
-                    # Quiz finished
                     await broadcast(session, {
                         "type": "quiz.finished",
                         "leaderboard": [
                             {"name": p.name, "score": p.score}
-                            for p in sorted(session.players.values(), key=lambda x: x.score, reverse=True)
+                            for p in sorted(
+                                session.players.values(),
+                                key=lambda x: x.score,
+                                reverse=True
+                            )
                         ]
                     })
-                    await printlog(f"[quiz] finished in session={session_id}")
-            
-            # Submit answer (students)
-            elif msg_type == "answer.submit" and session:
-                answer_idx = int(data.get("answer_idx", 0))
-                correct = session.record_answer(player_id, answer_idx)
-                
-                # Send confirmation to player
+                continue
+
+            if msg_type == "player.kick" and conn["is_host"]:
+                kid = data.get("player_id")
+                if kid in session.connections:
+                    try:
+                        await session.connections[kid].send_text(json.dumps({
+                            "type": "kicked"
+                        }))
+                        await session.connections[kid].close()
+                    except:
+                        pass
+                    session.remove_player(kid)
+                    await broadcast_lobby(session)
+                continue
+
+            # ------------------------------------------------------
+            # STUDENT ACTIONS
+            # ------------------------------------------------------
+            if msg_type == "answer.submit":
+                idx = int(data.get("answer_idx", 0))
+                correct = session.record_answer(player_id, idx)
                 await ws.send_text(json.dumps({
                     "type": "answer.recorded",
                     "correct": correct
                 }))
-                
-                # # Broadcast updated histogram
-                # bins = [session.answer_counts.get(i, 0) for i in range(4)]
-                # await broadcast(session, {
-                #     "type": "histogram",
-                #     "bins": bins
-                # })
-            
-            # Kick player (host only)
-            elif msg_type == "player.kick" and is_host_bool and session:
-                kick_player_id = data.get("player_id")
-                if kick_player_id and kick_player_id in session.connections:
-                    kick_ws = session.connections[kick_player_id]
-                    await kick_ws.send_text(json.dumps({
-                        "type": "kicked",
-                        "message": "You were removed from the session"
-                    }))
-                    await kick_ws.close()
-                    session.remove_player(kick_player_id)
-                    await broadcast_lobby(session)
-                    await printlog(f"[session] kicked player={kick_player_id} from session={session_id}")
-    
-            elif msg_type == "chat" and session:
+                continue
+
+            # ------------------------------------------------------
+            # CHAT
+            # ------------------------------------------------------
+            if msg_type == "chat":
                 msg = data.get("msg", "")
-                player = session.players.get(player_id)
-                name = player.name if player else "Unknown"
-                if player.is_muted:
+                p = session.players.get(player_id)
+                name = p.name if p else "Unknown"
+
+                if p and p.is_muted:
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "You are muted"
                     }))
                     continue
 
-                # Broadcast chat message to all in session
                 await broadcast(session, {
                     "type": "chat",
                     "player_id": player_id,
                     "name": name,
                     "msg": msg
                 })
-                
-            elif msg_type == "player.mute" and is_host_bool and session:
-                mute_player_id = data.get("player_id")
-                if mute_player_id and mute_player_id in session.players:
-                    player = session.players[mute_player_id]
-                    mute = player.is_muted
-                    prompt = "unmuted" if mute else "muted"
-                    player.is_muted = not mute
-                    await printlog(f"[session] player={mute_player_id} in session={session_id} is now {prompt}")
-                    await broadcast_lobby(session)
-                    status = "muted" if mute else "unmuted"
-    
+                continue
+
+            # ------------------------------------------------------
+            # FALLBACK
+            # ------------------------------------------------------
+            await ws.send_text(json.dumps({
+                "type": "error",
+                "message": f"Unknown message: {msg_type}"
+            }))
+
     except WebSocketDisconnect:
         await printlog(f"[ws] disconnect player={player_id}")
+
     finally:
-        # Cleanup
-        if session and player_id in session.connections:
+        session = conn["session"]
+
+        if session:
+            # Remove connection
             session.connections.pop(player_id, None)
-            
-            if is_host_bool:
-                # Host disconnected - close session
-                await printlog(f"[session] host disconnected, closing session={session_id}")
+
+            if conn["is_host"]:
+                # Host disconnected: close session
+                await printlog(
+                    f"[session] host disconnected; closing session={session.id}"
+                )
                 await broadcast(session, {
                     "type": "session.closed",
                     "message": "Host disconnected"
                 })
+
+                # Close all students
                 for p_ws in list(session.connections.values()):
                     try:
                         await p_ws.close()
                     except:
                         pass
-                if session_id:
-                    delete_session(session_id)
+
+                delete_session(session.id)
             else:
-                # Student disconnected
+                # Normal student disconnect
                 session.remove_player(player_id)
                 await broadcast_lobby(session)
 

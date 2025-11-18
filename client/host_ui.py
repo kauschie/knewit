@@ -20,31 +20,37 @@ methods (update_players, set_quiz_preview) you can later call from
 """
 
 from __future__ import annotations
-
+from typing import List
+import secrets
 import random
 import asyncio
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from typing import List
 from dataclasses import dataclass
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label, Digits
 from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
 from textual.app import App, ComposeResult
 from textual import events, on, work
-from common import logger
-import secrets
 
-from knewit.client.widgets.plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
-from knewit.client.widgets.quiz_selector import QuizSelector
-from knewit.client.widgets.quiz_preview_log import QuizPreviewLog
-from knewit.client.widgets.timedisplay import TimeDisplay
-from knewit.client.widgets.basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
-from utils import _host_validate
-from knewit.client.widgets.chat import RichLogChat
-from knewit.client.widgets.quiz_creator import QuizCreator
+from client.interface import HostInterface
+from client.common import logger
+from client.widgets.plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
+from client.widgets.quiz_selector import QuizSelector
+from client.widgets.quiz_preview_log import QuizPreviewLog
+from client.widgets.timedisplay import TimeDisplay
+from client.widgets.basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
+from client.utils import _host_validate
+from client.widgets.chat import RichLogChat
+from client.widgets.quiz_creator import QuizCreator
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
+
+logger.debug("host_ui.py starting...")
 
 # ---- shared model -----------------------------------------------------------
 @dataclass
@@ -375,6 +381,13 @@ class MainScreen(Screen):
         # Seed chat
         # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
         self.append_chat("System", "Ready. Press a to add a round column; e to append chat.", "sys")
+    
+    def on_show(self) -> None:
+        """Focus chat input on screen show."""
+        if self.app.session:
+            self.title = f"Hosting as {self.app.session.username} | Session: {self.app.session.session_id}"
+        if self.chat_input:
+            self.set_focus(self.chat_input)
     
     # ---------- Leaderboard helpers ----------
 
@@ -757,6 +770,8 @@ class LoginScreen(Screen):
     
     """
     
+    ready_event: asyncio.Event
+    
     BINDINGS = [
         ("enter", "attempt_login", "Submit login"),
     ]
@@ -783,33 +798,57 @@ class LoginScreen(Screen):
         yield Footer()
         
         # --- unify both triggers on one action ---
-    def action_attempt_login(self) -> None:
+    async def action_attempt_login(self) -> None:
+        # gather input values
         vals = self._host_get_values()
+        logger.debug("Attempting login with values:")
+        for k,v in vals.items():
+            logger.debug(f"Login input: {k} = {v}")
         
+        # perform validation
         ok, msg = _host_validate(vals)
         if not ok:
+            logger.debug(f"validation failed: {msg}")
             self._show_error(msg)
             return
-        self.app.login_info = vals.copy()  # store for later use in MainScreen
+        
+        # try to connect to server
         self.query_one(".error-message").add_class("hidden")
-        if not self._connect_to_server(vals):
+        
+        logger.debug("calling _launch_session")
+        _b, msg = await self._launch_session(vals)
+        
+        if not _b:
+            self.title = "Failed to connect to server."
             self._show_error("Failed to connect to server.")
+            logger.debug(f"launch session failed to connect: {msg}")
             return
-        # success -> switch modes (or emit a custom Message if you prefer)
-        self.app.switch_mode("main")
+        else:
+            logger.debug(f"launch session succeeded: {msg}")
+            self.app.login_info = vals
+    
+    async def _launch_session(self, vals: dict) -> tuple[bool, str]:
+        # connect to server
+        if not await self._connect_to_server(vals):
+            return False, "Failed to connect to server."
+        # should have gotten a welcome message by now if successful
+        # issue session.create
+        try:
+            if not await self.app.session.wait_until_create(timeout=5.0):
+                return False, "Session creation failed."
+        except asyncio.TimeoutError:
+            return False, "Session creation timed out."
         
-    def _connect_to_server(self, vals: dict) -> bool:
-        """Attempt to connect to server with given vals.
-        setup connection stuff here
-          - the logic needs to be moved over from host_tui_old.py and extended
-                (including player information)
+        self.app.push_screen("main")
+        return True, "Connected and session created."
+    
+    async def _connect_to_server(self, vals: dict) -> bool:
+        self.title = "Connecting to server..."
+        self.app.session = HostInterface.from_dict(vals.copy())
+        success = await self.app.session.start()
+        return success
 
-        Return True on success, False on failure.
-        """
-        
-        return True  # placeholder for real connection logic
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         
         if event.button.id == "session-inputs-button":   # from BorderedInputButtonContainer(id="session-inputs")
             self.query_one("#session-inputs-input", Input).value = secrets.token_urlsafe(6)
@@ -818,28 +857,31 @@ class LoginScreen(Screen):
             self.query_one("#pw-inputs-input", Input).value = secrets.token_urlsafe(8)
         
         if event.button.id == "host-inputs-button":   # from BorderedInputButtonContainer(id="host-inputs")
-            self.action_attempt_login()
+            await self.action_attempt_login()
             
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.action_attempt_login()
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        await self.action_attempt_login()
 
     # --- helpers ---
     def _host_get_values(self) -> dict:
         
-        return {
+        vals = {
             # "session_id": self.query_one("#session-inputs-input", Input).value.strip(),
             # "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
             # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip(),
             # "server_port": self.query_one("#server-inputs-input2", Input).value.strip(),
             # "host_name":  self.query_one("#host-inputs-input", Input).value.strip(),
+            "app": self.app,
             "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
             "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
             "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }
-        
+        vals["username"] = vals["host_name"]  # alias
+
+        return vals
 
     def _show_error(self, msg: str) -> None:
         err = self.query_one(".error-message", Static)
@@ -878,45 +920,34 @@ class HostUIApp(App):
         "quiz_creator": QuizCreator,
     }
     
+    SCREENS = {
+        "main": MainScreen,
+        "login": LoginScreen,
+    }
+    
     def __init__(self) -> None:
         super().__init__()
         self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
-        self.login_info: dict = {}
-
-
-    # Small API points to be used later when wiring event handlers
-    def update_players(self, players: List[dict]) -> None:
-        """Replace the rendered player list with `players`.
-
-        players: list of dicts with keys `player_id` and `name`.
-        """
-        # clear existing
-        if not self.player_list_container:
-            return
-        self.player_list_container.remove_children()
-
-        for p in players:
-            card = PlayerCard(p["player_id"], p.get("name", "unnamed"))
-            # mount directly into the scroll container
-            self.player_list_container.mount(card)
+        self.session: HostInterface | None = None
+        self.login_info: dict | None = None  # populated after login
 
     # Bindings / actions
 
     def action_toggle_dark(self) -> None:
         self.theme = THEME if self.theme != THEME else "textual-dark"
 
-    async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
-        # seed some players for the initial view
-        self.players = [
-            {"player_id": "p1001", "name": "mike"},
-            {"player_id": "p1002", "name": "amy"},
-        ]
-        self.update_players(self.players)
+    def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
         # sample quiz
         self.theme = THEME
-        # self.switch_mode("login")
-        self.switch_mode("main")
+        
+        self.push_screen("login")
+        # self.switch_mode("main")
+        
+    # async def on_unmount(self) -> None:
+    #     """Called when the UI is closing. Stop WS reconnect loop."""
+    #     if self.session:
+    #         await self.session.stop()
 
 if __name__ == "__main__":
     HostUIApp().run()

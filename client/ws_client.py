@@ -43,7 +43,7 @@ class WSClient:
         self._stop = False
         self.ready_event = asyncio.Event()
         self.session_id = url.split("session_id=")[-1].split("&")[0]  # crude extraction
-        self.player_id = url.split("username=")[-1].split("&")[0]
+        self.player_id = url.split("player_id=")[-1]
         logger.debug(f"WSClient initialized for session_id={self.session_id}, player_id={self.player_id}")
 
     async def start(self):
@@ -62,10 +62,7 @@ class WSClient:
                 # Enable built-in ping/pong with a reasonable interval
                 async with websockets.connect(
                     self.url,
-                    ping_interval=20,  # Send ping every 20 seconds
-                    ping_timeout=10,   # Wait 10 seconds for pong response
-                    close_timeout=5,   # Wait 5 seconds for close handshake
-                    max_size=2**23,    # Larger message size limit (~8MB)
+                    ping_interval=None,  # we handle ping/pong ourselves
                 ) as ws:
                     self.ready_event.set()
                     sender = asyncio.create_task(self._sender(ws))
@@ -105,6 +102,7 @@ class WSClient:
             else:
                 # If the connection ran to completion "cleanly", reset backoff.
                 backoff = 1
+                logger.debug("WebSocket connection closed")
                 
     async def wait_until_connected(self, timeout: float = 5.0) -> bool:
         """Wait until the WebSocket connection is established (or timeout)."""
@@ -164,8 +162,10 @@ class WSClient:
 
     async def send(self, payload: dict):
         """Public API to enqueue an outbound message (non-blocking)."""
+        logger.debug(f"Enqueuing payload to send: {payload} for {self.player_id}...")
         await self.send_q.put(payload)
 
     def stop(self):
         """Signal the reconnect loop to exit (used on UI shutdown)."""
+        logger.debug("WSClient stop called.")
         self._stop = True

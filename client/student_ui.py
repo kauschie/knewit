@@ -41,8 +41,9 @@ from knewit.client.widgets.basic_widgets import BorderedInputContainer, Bordered
 from utils import _student_validate
 from knewit.client.widgets.chat import RichLogChat
 from knewit.client.widgets.quiz_question_widget import QuizQuestionWidget
-from common import StudentInterface
-from ws_client import WSClient
+from client.interface import StudentInterface
+from client.common import logger
+
 
 import logging
 logging.basicConfig(filename='logs/host_log.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -583,10 +584,9 @@ class LoginScreen(Screen):
             return
         
         # try to connect to server
-
+        self.query_one(".error-message").add_class("hidden")
         if not await self._connect_to_server(vals):
             self.title = "Failed to connect to server."
-            self.query_one(".error-message").add_class("hidden")
             self._show_error("Failed to connect to server.")
             return
 
@@ -666,7 +666,8 @@ class StudentUIApp(App):
         self.player_list_container: VerticalScroll | None = None
         # self.login_info: dict = {}
         self.session: StudentInterface | None = None
-        self.quiz: Quiz | None = None
+        
+        self.quiz: Quiz | None = None # remove after debugging UI
 
 
     # Small API points to be used later when wiring event handlers
@@ -691,21 +692,13 @@ class StudentUIApp(App):
         self.theme = THEME if self.theme != THEME else "textual-dark"
 
     async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
-        # seed some players for the initial view
-        self.players = [
-            {"player_id": "p1001", "name": "mike"},
-            {"player_id": "p1002", "name": "amy"},
-        ]
-        self.update_players(self.players)
-        # sample quiz
-        
         self.theme = THEME
         
+        # sample quiz, remove after debugging UI
         self.quiz = Quiz.load_from_file("quizzes/abcd1234.json")
-        
         logger.debug(f"Loaded sample quiz: {self.quiz}")
-        self.push_screen("login")
         
+        self.push_screen("login")
         # self.switch_mode("main")
         
     async def on_mode_changed(self, event: App.ModeChanged) -> None:

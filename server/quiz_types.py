@@ -168,6 +168,7 @@ class QuizSession:
     state: QuizState = QuizState.LOBBY
     players: Dict[str, Player] = field(default_factory=dict)  # player_id -> Player
     quiz: Optional[Quiz] = None
+    password: Optional[str] = None
     current_question_idx: int = -1
     answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
     connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
@@ -249,6 +250,7 @@ class QuizSession:
             "session_id": self.id,
             "host_id": self.host_id,
             "state": self.state.value,
+            "password": self.password,
             "players": [p.to_dict() for p in self.players.values()],
             "quiz_title": self.quiz.title if self.quiz else None,
             "current_question": self.current_question_idx + 1,
@@ -258,7 +260,7 @@ class QuizSession:
 # Global state (in real app, use Redis)
 quiz_sessions: Dict[str, QuizSession] = {}
 
-def create_session(host_id: str, session_id: str | None = None) -> QuizSession:
+def create_session(host_id: str, session_id: str | None = None, password: str | None = None) -> QuizSession:
     """Create a new quiz session with a unique ID."""
     if session_id is None:
         session_id = secrets.token_urlsafe(6)  # Shorter, easier to share
@@ -267,7 +269,8 @@ def create_session(host_id: str, session_id: str | None = None) -> QuizSession:
     
     session = QuizSession(
         id=session_id,
-        host_id=host_id
+        host_id=host_id,
+        password=password
     )
     quiz_sessions[session_id] = session
     return session
