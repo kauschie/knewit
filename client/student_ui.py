@@ -643,8 +643,8 @@ class LoginScreen(Screen):
             "app": self.app,
             "session_id": self.query_one("#session-id-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-input-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
-            "server_port": int(self.query_one("#server-inputs-input2", Input).value.strip() or "8000"),
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
+            "server_port": int(self.query_one("#server-inputs-input2", Input).value.strip() or "49000"),
             "username":  self.query_one("#username-inputs-input", Input).value.strip() or "johndoe123",
         }
         

@@ -174,6 +174,11 @@ class StudentInterface(SessionInterface):
             logger.debug(f"[StudentInterface] Unhandled message type: {msg_type}")
             await super().on_event(message)
 
+################################################
+#            Student Event Callbacks              #
+################################################
+
+
     async def send_join(self):
         """Send join session message to server."""
         await self.send({
@@ -181,16 +186,6 @@ class StudentInterface(SessionInterface):
             "password": self.password
         })
         
-    # async def wait_until_join(self, timeout: float = 10.0) -> bool:
-    #     """Wait until the session has been joined (or timeout)."""
-    #     try:
-    #         logger.debug("Waiting for joined message to arrive...")
-    #         await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
-    #         return True
-    #     except asyncio.TimeoutError:
-    #         logger.debug(f"Timed out waiting for session join after {timeout} seconds.")
-    #         return False
-
     async def send_answer(self, index: int):
         """Send an answer selection to the server."""
         await self.send({
@@ -204,6 +199,8 @@ class StudentInterface(SessionInterface):
             "type": "chat",
             "msg": msg
         })
+
+
 
 
 @dataclass
@@ -229,6 +226,11 @@ class HostInterface(SessionInterface):
             screen.append_chat("System", "Session created successfully.")
         else:
             await super().on_event(message)
+    
+    ###############################################
+    #            Host Event Callbacks              #
+    ##############################################
+    
     
     async def send_create(self):
         """Send a session creation request to the server."""
