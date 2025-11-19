@@ -37,12 +37,26 @@ class SessionInterface:
             password=data["password"]
         )
 
+    def set_from_dict(self, data):
+        self.app = data["app"]
+        self.session_id = data["session_id"]
+        self.username = data["username"]
+        self.password = data["password"]
+        self.server_ip = data["server_ip"]
+        self.server_port = data["server_port"]
+
     async def start(self) -> bool:
         logger.debug("StudentInterface.start() called")
-
+        
+        if self.is_connected:
+            logger.debug("Already connected, skipping start.")
+            return True
+        
         url = f"ws://{self.server_ip}:{self.server_port}/ws" \
             f"?session_id={self.session_id}&player_id={self.username}"
         logger.info(f"Connecting to WebSocket URL: {url}")
+        
+        
         self.ws = WSClient(url, self.on_event)
 
         # Use Textual-safe async runner
@@ -76,14 +90,18 @@ class SessionInterface:
             raise RuntimeError("MainScreen is not mounted yet.")
         return screen
 
-
-    def stop(self):
+    async def stop(self):
         """Signal WSClient to shut down and cancel its task."""
-        if self.ws:
-            self.ws.stop()
+        if not self.ws:
+            return
+
+        self.ws.stop()           # signal WSClient loop to exit
+
         if self.ws_task:
-            self.ws_task.cancel()
-        self.is_connected = False
+            try:
+                await self.ws_task.wait()
+            except Exception:
+                pass
 
     async def on_event(self, message: dict):
         """Override in subclass (HostSessionModel or StudentSessionModel)."""
@@ -101,15 +119,18 @@ class StudentInterface(SessionInterface):
             logger.debug("Student contacted server successfully.")
             screen.title = f"Contacted server as {self.username}"
             screen.sub_title = f"Session: {self.session_id} 1"
-            await self.send_join()
+            # await self.send_join()
 
         elif msg_type == "session.joined":
             logger.info(f"Student joined session {self.session_id}.")
+            self.session_id = message.get("session_id", self.session_id) # update session id if a differeont one as assigned for some reason
+            self.username = message.get("name", self.username) # update username if changed by server
             screen.title = f"Connected as {self.username}"
             screen.sub_title = f"Session: {self.session_id}"
-            self.ready_event.set()
-            screen.append_chat("System", "Connected to server.")
-            screen.student_load_quiz()
+            screen.append_chat("System", f"Connected to server as {self.username}.")
+            self.app.push_screen("main")
+            # self.ready_event.set()
+            # screen.student_load_quiz()
 
         elif msg_type == "question.next":
             qdata = message.get("question")
@@ -157,20 +178,18 @@ class StudentInterface(SessionInterface):
         """Send join session message to server."""
         await self.send({
             "type": "session.join",
-            "session_id": self.session_id,
-            "name": self.username,
             "password": self.password
         })
         
-    async def wait_until_join(self, timeout: float = 10.0) -> bool:
-        """Wait until the session has been joined (or timeout)."""
-        try:
-            logger.debug("Waiting for joined message to arrive...")
-            await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            logger.debug(f"Timed out waiting for session join after {timeout} seconds.")
-            return False
+    # async def wait_until_join(self, timeout: float = 10.0) -> bool:
+    #     """Wait until the session has been joined (or timeout)."""
+    #     try:
+    #         logger.debug("Waiting for joined message to arrive...")
+    #         await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
+    #         return True
+    #     except asyncio.TimeoutError:
+    #         logger.debug(f"Timed out waiting for session join after {timeout} seconds.")
+    #         return False
 
     async def send_answer(self, index: int):
         """Send an answer selection to the server."""
@@ -214,11 +233,14 @@ class HostInterface(SessionInterface):
     async def send_create(self):
         """Send a session creation request to the server."""
         logger.debug("send_create called")
-        await self.send({
+        packet = {
             "type": "session.create",
-            "session_id": self.session_id,
-            "password": self.password,
-        })
+        }
+        
+        if self.password is not None and self.password != "":
+            packet["password"] = self.password
+            
+        await self.send(packet)
         logger.debug("Sent session.create message to server.")
 
         

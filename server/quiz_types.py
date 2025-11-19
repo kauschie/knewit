@@ -80,7 +80,6 @@ class StudentQuestion:
 class Player:
     """A player in a quiz session."""
     player_id: str
-    name: str
     score: int = 0
     answered_current: bool = False
     # Runtime/network metadata (updated by server on pings/pongs)
@@ -94,7 +93,6 @@ class Player:
     def to_dict(self) -> dict:
         return {
             "player_id": self.player_id,
-            "name": self.name,
             "score": self.score,
             # Include latency if available (float ms) so UIs can display it.
             "latency_ms": None if self.latency_ms is None else round(self.latency_ms, 1),
@@ -173,14 +171,13 @@ class QuizSession:
     answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
     connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
     
-    def add_player(self, player_id: str, name: str) -> Optional[Player]:
+    def add_player(self, player_id: str) -> Optional[Player]:
         """Add player to lobby. Returns None if name is taken."""
-        # Check if name is already taken
         for player in self.players.values():
-            if player.name == name:
+            if player.player_id == player_id:
                 return None
         
-        player = Player(player_id=player_id, name=name)
+        player = Player(player_id=player_id)
         self.players[player_id] = player
         return player
     

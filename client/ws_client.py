@@ -162,6 +162,7 @@ class WSClient:
 
     async def send(self, payload: dict):
         """Public API to enqueue an outbound message (non-blocking)."""
+        # logger.debug(f"Enqueuing payload to send: {payload} for {self.player_id}...", stack_info=True)
         logger.debug(f"Enqueuing payload to send: {payload} for {self.player_id}...")
         await self.send_q.put(payload)
 

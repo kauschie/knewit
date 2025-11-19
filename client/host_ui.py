@@ -271,7 +271,7 @@ class MainScreen(Screen):
     def __init__(self) -> None:
         super().__init__()
         # general
-        self.players: list[dict] = []       # [{player_id, name, score, ping}]
+        self.players: list[dict] = []       # [{player_id, score, ping}]
         self.round_idx: int = 0             # track dynamic round columns
         
         
@@ -409,7 +409,7 @@ class MainScreen(Screen):
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
             ping = int(p.get("ping", 0)) if str(p.get("ping", "")).isdigit() else p.get("ping", "-")
-            name = p["name"]
+            name = p["player_id"]
             total = int(p.get("score", 0))
             rounds = [int(v) for v in p.get("rounds", [])]
 
@@ -429,11 +429,11 @@ class MainScreen(Screen):
         lv.clear()
 
         for p in self.players:
-            pid = p["player_id"]
-            name = p["name"]
+            # pid = p["player_id"]
+            name = p["player_id"]
 
             row = Horizontal(
-                            Label(p["name"], classes="uc-name"),
+                            Label(name, classes="uc-name"),
                             Button("Kick", id=f"kick-{name}", classes="uc-kick"),
                             Button("Mute", id=f"mute-{name}", classes="uc-mute"),
                             classes="uc-row",
@@ -607,9 +607,9 @@ class MainScreen(Screen):
             # if so -> reinstate
             # if not -> create new player
         
-        pid = f"p{random.randint(1000, 9999)}"
+        # pid = f"p{random.randint(1000, 9999)}"
         name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
-        self.players.append({"player_id": pid, "name": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
+        self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
         self._rebuild_leaderboard()
         self._rebuild_user_controls()
 
@@ -678,7 +678,7 @@ class MainScreen(Screen):
             "Can't wait for the results!"
         ]
         
-        player_name_list = [p["name"] for p in self.players]
+        player_name_list = [p["player_id"] for p in self.players]
         player_name_list.append(self.host_name if self.host_name else "Host")
         name = random.choice(player_name_list) if player_name_list else "Player1"
         line = random.choice(list_of_random_msgs)

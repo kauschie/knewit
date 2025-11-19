@@ -68,15 +68,14 @@ class BorderedTwoInputContainer(HorizontalGroup):
 class PlayerCard(Static):
     """Simple card displaying a player's name and status."""
 
-    def __init__(self, player_id: str, name: str, *, classes: str | None = None) -> None:
+    def __init__(self, player_id: str, *, classes: str | None = None) -> None:
         super().__init__(classes=(classes or "player-card"))
         self.player_id = player_id
         # Avoid clashing with Widget.name property; store as player_name
-        self.player_name = name
 
     def render(self) -> str:
-        return f"{self.player_name} ({self.player_id})"
-    
+        return f"{self.player_id}"
+
 
 class BorderedInputContainer(HorizontalGroup):
     def __init__(self, *, 

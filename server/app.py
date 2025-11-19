@@ -60,6 +60,7 @@ HARD_TIMEOUT = 300
 # Background task reference
 _ping_task: asyncio.Task | None = None
 
+BLOCKED_IPS = set()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -105,11 +106,14 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
     """
 
     await ws.accept()
-
+    
+    if ws.client.host in BLOCKED_IPS:
+        await printlog(f"[ws] rejected connection from blocked IP={ws.client.host}")
+        await ws.close()
+        return
+    
     # Per-connection state
     conn = {
-        "ws": ws,
-        "player_id": player_id,
         "session": None,     # Will point to QuizSession
         "is_host": False,    # True after session.create
         "attempts": 3        # Password retries
@@ -127,7 +131,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
     try:
         while True:
             raw = await ws.receive_text()
-            data = json.loads(raw)
+            data: dict = json.loads(raw)
             msg_type = data.get("type")
 
             await printlog(f"[ws] recv player={player_id} type={msg_type}")
@@ -158,17 +162,16 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             # ------------------------------------------------------
             if msg_type == "session.create":
                 conn["is_host"] = True
-                sid = data.get("session_id") or session_id
                 pw = data.get("password")
 
                 await printlog(
-                    f"[session] host={player_id} creating session sid={sid}"
+                    f"[session] host={player_id} creating session sid={session_id} with {f'pw={pw}' if pw else 'no pw'}"
                 )
 
                 try:
                     session = create_session(
                         host_id=player_id,
-                        session_id=sid,
+                        session_id=session_id,
                         password=pw
                     )
                 except ValueError as e:
@@ -197,22 +200,13 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             # STUDENT JOINS SESSION
             # ------------------------------------------------------
             if msg_type == "session.join":
-                sid = data.get("session_id")
-                name = data.get("name")
                 pw = data.get("password")
 
-                await printlog(
-                    f"[session] player={player_id} join attempt sid={sid}"
-                )
-
-                if not sid or not name:
-                    await ws.send_text(json.dumps({
-                        "type": "error",
-                        "message": "Missing session_id or name"
-                    }))
-                    continue
-
-                session = get_session(sid)
+                # await printlog(
+                #     f"[session] player={player_id} join sid={sid} attempts remaining={conn['attempts']}"
+                # )
+                
+                session = get_session(session_id)
                 if not session:
                     await ws.send_text(json.dumps({
                         "type": "error",
@@ -222,14 +216,25 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
                 # Password
                 if session.password:
+                    if conn["attempts"] <= 0:
+                        await ws.send_text(json.dumps({
+                            "type": "reject.pw",
+                            "message": "Too many incorrect password attempts"
+                        }))
+                        
+                        # close connection
+                        await ws.close()
+                        # add ip blocking here if desired
+                        # get ip
+                        ip = ws.client.host
+                        port = ws.client.port
+                        await printlog(f"[ws] disconnecting player={player_id} from ip={ip}:{port} due to too many incorrect password attempts")
+                        
+                        break
+                    
+                    
                     if pw != session.password:
                         conn["attempts"] -= 1
-                        if conn["attempts"] <= 0:
-                            await ws.send_text(json.dumps({
-                                "type": "reject.pw",
-                                "message": "Too many incorrect password attempts"
-                            }))
-                            break
 
                         await ws.send_text(json.dumps({
                             "type": "reject.pw",
@@ -238,7 +243,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         continue
 
                 # Add player
-                player = session.add_player(player_id, name)
+                player = session.add_player(player_id)
                 if not player:
                     await ws.send_text(json.dumps({
                         "type": "error",
@@ -252,7 +257,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                 await ws.send_text(json.dumps({
                     "type": "session.joined",
                     "session_id": session.id,
-                    "name": name
+                    "name": player_id
                 }))
 
                 await broadcast_lobby(session)
@@ -319,7 +324,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     await broadcast(session, {
                         "type": "quiz.finished",
                         "leaderboard": [
-                            {"name": p.name, "score": p.score}
+                            {"name": p.player_id, "score": p.score}
                             for p in sorted(
                                 session.players.values(),
                                 key=lambda x: x.score,
@@ -361,7 +366,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             if msg_type == "chat":
                 msg = data.get("msg", "")
                 p = session.players.get(player_id)
-                name = p.name if p else "Unknown"
+                name = p.player_id if p else "Unknown"
 
                 if p and p.is_muted:
                     await ws.send_text(json.dumps({
@@ -373,7 +378,6 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                 await broadcast(session, {
                     "type": "chat",
                     "player_id": player_id,
-                    "name": name,
                     "msg": msg
                 })
                 continue

@@ -362,7 +362,7 @@ class MainScreen(Screen):
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
             ping = int(p.get("ping", 0)) if str(p.get("ping", "")).isdigit() else p.get("ping", "-")
-            name = p["name"]
+            name = p["player_id"]
             total = int(p.get("score", 0))
             rounds = [int(v) for v in p.get("rounds", [])]
 
@@ -434,7 +434,7 @@ class MainScreen(Screen):
     def action_add_player(self) -> None:
         pid = f"p{random.randint(1000, 9999)}"
         name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
-        self.players.append({"player_id": pid, "name": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
+        self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
         self._rebuild_leaderboard()
 
     def action_remove_player(self) -> None:
@@ -479,7 +479,7 @@ class MainScreen(Screen):
             "Can't wait for the results!"
         ]
         
-        player_name_list = [p["name"] for p in self.players]
+        player_name_list = [p["player_id"] for p in self.players]
         player_name_list.append(self.username)
         name = random.choice(player_name_list) if player_name_list else "Player1"
         line = random.choice(list_of_random_msgs)
@@ -591,59 +591,47 @@ class LoginScreen(Screen):
             self._show_error(msg)
             logger.debug(f"Login failed, staying on login screen: {msg}")
             return
-
-
+        if success:
+            logger.debug("join request sent, waiting for joined message...")
+            self.title = "Connected, waiting to join session..."
 
     async def _connect_to_server(self, vals: dict) -> tuple[bool, str]:
         """Establish WSClient connection and start session."""
         self.title = "Connecting to server..."
         
         # establish connection if not already connected
-        if self.app.session is None or not self.app.session.is_connected:
-            # handshake with server and start session
+        if self.app.session is None:
             self.app.session = StudentInterface.from_dict(vals.copy())
-            success = await self.app.session.start()
-        
-            if not success:
-                return False, "Failed to establish connection with server."
         else:
-            self.app.session.app = vals["app"]
-            self.app.session.session_id = vals["session_id"]
-            self.app.session.username = vals["username"]
-            self.app.session.password = vals["password"]
-            self.app.session.server_ip = vals["server_ip"]
-            self.app.session.server_port = vals["server_port"]
-            
-            # self.app.session.ready_event.set()  # set the event to indicate connection is ready from previous attempt
             logger.debug("Reusing existing session connection.")
-
-        # authenticate / join session
-        try:
-            if not self.app.session.is_connected:
-                # join comes from welcome message handler
-                join_success = await self.app.session.wait_until_join(timeout=5.0)
+            # check if session id or username changed
+            if (self.app.session.session_id != vals["session_id"] or
+                self.app.session.username != vals["username"]):
+                
+                logger.debug("Session ID or username changed, disconnecting and updating session info.")
+                await self.app.session.stop()
+                
+                self.app.session = StudentInterface.from_dict(vals.copy())
             else:
-                await self.app.session.send_join()
-                join_success = await self.app.session.wait_until_join(timeout=5.0)
-
-            if not join_success:
-                self.app.session.ready_event.clear()  # reset for future attempts
-                return False, "Failed to join session. Check session ID and password."
-
-        except asyncio.TimeoutError:
-            return False, "Timed out waiting for session join."
-
-        self.app.push_screen("main")
-        return True, "Connected successfully."
+                logger.debug("Session ID and username unchanged, reusing existing session.")
+                self.app.session.set_from_dict(vals.copy())
         
-        
+        try:
+            if not await self.app.session.start():
+                return False, "Failed to establish connection with server."
+        except TimeoutError as e:
+            logger.error(f"Timeout while connecting to server: {e}")
+            return False, "Connection timed out."
 
+        logger.debug("[LoginScreen] Connection established, sending join message...")
+        await self.app.session.send_join()
+        return True, ""
+        
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         
         if event.button.id == "username-inputs-button":
             logger.debug("Login button pressed.")
-            await self.action_attempt_login()
-            
+            await self.action_attempt_login()        
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.action_attempt_login()
@@ -656,7 +644,7 @@ class LoginScreen(Screen):
             "session_id": self.query_one("#session-id-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-input-input", Input).value.strip(),
             "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
-            "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "8000",
+            "server_port": int(self.query_one("#server-inputs-input2", Input).value.strip() or "8000"),
             "username":  self.query_one("#username-inputs-input", Input).value.strip() or "johndoe123",
         }
         
@@ -720,7 +708,7 @@ class StudentUIApp(App):
         self.player_list_container.remove_children()
 
         for p in players:
-            card = PlayerCard(p["player_id"], p.get("name", "unnamed"))
+            card = PlayerCard(p["player_id"])
             # mount directly into the scroll container
             self.player_list_container.mount(card)
 
