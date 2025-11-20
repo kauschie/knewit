@@ -461,15 +461,25 @@ async def broadcast_lobby(session: QuizSession, removed_player: str | None = Non
     
     # identify the change
     if removed_player:
-        players.append({"removed": removed_player})
-    elif added_player:
-        players.append({"added": added_player})
-    
-    await broadcast(session, {
-        "type": "lobby.update",
-        "players": players,
-        "state": session.state.value
+        await broadcast(session, {
+            "type": "lobby.update",
+            "players": players,
+            "state": session.state.value,
+            "removed": removed_player
     })
+    elif added_player:
+        await broadcast(session, {
+            "type": "lobby.update",
+            "players": players,
+            "state": session.state.value,
+            "added": added_player
+    })
+    else:
+        await broadcast(session, {
+            "type": "lobby.update",
+            "players": players,
+            "state": session.state.value
+        })
 
 
 async def ping_loop():
