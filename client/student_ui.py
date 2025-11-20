@@ -489,10 +489,10 @@ class MainScreen(Screen):
         if e.input.id == "chat-input":
             self._send_chat_from_input()
 
-    def _send_chat_from_input(self) -> None:
-        if self.chat_input and (txt := self.chat_input.value.strip()):
-            self.chat_input.value = ""
-            self.append_chat(user=self.username, msg=txt)
+    # def _send_chat_from_input(self) -> None:
+    #     if self.chat_input and (txt := self.chat_input.value.strip()):
+    #         self.chat_input.value = ""
+    #         self.append_chat(user=self.username, msg=txt)
     
     
     @work
@@ -510,7 +510,7 @@ class MainScreen(Screen):
     def _send_chat_from_input(self) -> None:
         if self.chat_input and (txt := self.chat_input.value.strip()):
             self.chat_input.value = ""
-            self.append_chat(user=self.username, msg=txt)
+            # self.append_chat(user=self.username, msg=txt)
             asyncio.create_task(self.app.session.send_chat(txt))
 
 

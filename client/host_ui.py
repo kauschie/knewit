@@ -691,7 +691,8 @@ class MainScreen(Screen):
     def _send_chat_from_input(self) -> None:
         if self.chat_input and (txt := self.chat_input.value.strip()):
             self.chat_input.value = ""
-            self.append_chat(user=self.host_name, msg=txt)
+            # self.append_chat(user=self.host_name, msg=txt)
+            asyncio.create_task(self.app.session.send_chat(txt))
     
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
@@ -875,7 +876,7 @@ class LoginScreen(Screen):
             "app": self.app,
             "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "49000",
             "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }

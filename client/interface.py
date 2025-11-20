@@ -131,6 +131,11 @@ class StudentInterface(SessionInterface):
             self.app.push_screen("main")
             # self.ready_event.set()
             # screen.student_load_quiz()
+            
+        elif msg_type == "chat":
+            msg = message.get("msg", "")
+            p = message.get("player_id", "Host")
+            screen.append_chat(p, msg)
 
         elif msg_type == "question.next":
             qdata = message.get("question")
@@ -166,6 +171,7 @@ class StudentInterface(SessionInterface):
         elif msg_type == "error":
             logger.error(f"Server error: {message.get('detail')}")
             screen.append_chat("System", f"Error: {message.get('detail')}")
+            
         elif msg_type == "reject.pw":
             logger.error("Password rejected by server.")
             screen.append_chat("System", "Error: Incorrect password.")
@@ -224,13 +230,23 @@ class HostInterface(SessionInterface):
             screen.title = f"Hosting as {self.username}"
             # screen.sub_title = f"Session: {self.session_id}"
             screen.append_chat("System", "Session created successfully.")
+        # elif msg_type == "error":
+        elif msg_type == "chat":
+            msg = message.get("msg", "")
+            p = message.get("player_id", "Host")
+            screen.append_chat(p, msg)
         else:
             await super().on_event(message)
     
     ###############################################
     #            Host Event Callbacks              #
     ##############################################
-    
+    async def send_chat(self, msg: str):
+        """Send a chat message to the server."""
+        await self.send({
+            "type": "chat",
+            "msg": msg
+        })
     
     async def send_create(self):
         """Send a session creation request to the server."""

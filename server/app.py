@@ -366,7 +366,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             if msg_type == "chat":
                 msg = data.get("msg", "")
                 p = session.players.get(player_id)
-                name = p.player_id if p else "Unknown"
+                # name = p.player_id if p else "Unknown"
 
                 if p and p.is_muted:
                     await ws.send_text(json.dumps({
