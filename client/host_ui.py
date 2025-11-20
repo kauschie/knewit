@@ -259,8 +259,8 @@ class MainScreen(Screen):
     """
 
     BINDINGS = [
-        ("a", "add_player", "Add player"),
-        ("r", "remove_player", "Remove player"),
+        # ("a", "add_player", "Add player"),
+        # ("r", "remove_player", "Remove player"),
         ("n", "next_round", "New round column"),  # demo: add a per-round column
         ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
         ("enter", "send_chat", "Send chat input"),
@@ -375,8 +375,8 @@ class MainScreen(Screen):
         self.theme = THEME          
 
         # Seed a few players for demo
-        for _ in range(3):
-            self.action_add_player()
+        # for _ in range(3):
+        #     self.action_add_player()
 
         # Seed chat
         # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
@@ -408,9 +408,10 @@ class MainScreen(Screen):
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
-            ping = int(p.get("ping", 0)) if str(p.get("ping", "")).isdigit() else p.get("ping", "-")
+            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
             total = int(p.get("score", 0))
+            is_muted = p.get("is_muted", False)
             rounds = [int(v) for v in p.get("rounds", [])]
 
             row = [ping, name, total, *rounds]
@@ -601,23 +602,23 @@ class MainScreen(Screen):
         self.toggle_buttons()
 
     # ---------- Actions ----------
-    def action_add_player(self) -> None:
+    # def action_add_player(self) -> None:
         # needs to be a function to create a player
         # see if they already existed and were disconnected
             # if so -> reinstate
             # if not -> create new player
         
         # pid = f"p{random.randint(1000, 9999)}"
-        name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
-        self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
-        self._rebuild_leaderboard()
-        self._rebuild_user_controls()
+        # name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
+        # self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
+        # self._rebuild_leaderboard()
+        # self._rebuild_user_controls()
 
-    def action_remove_player(self) -> None:
-        if self.players:
-            self.players.pop()
-            self._rebuild_leaderboard()
-            self._rebuild_user_controls()
+    # def action_remove_player(self) -> None:
+    #     if self.players:
+    #         self.players.pop()
+    #         self._rebuild_leaderboard()
+    #         self._rebuild_user_controls()
 
     def action_start_quiz(self) -> None:
         self.start_quiz()
@@ -654,6 +655,8 @@ class MainScreen(Screen):
             priv = "host"
         if self.chat_log:
             self.chat_log.append_chat(user, msg, priv)
+        else:
+            logger.warning(f"[Host] Chat log not available. Message from {user}: {msg}")
             # self.chat_log.refresh()
             # self.chat_log.write(msg)
             
@@ -876,7 +879,8 @@ class LoginScreen(Screen):
             "app": self.app,
             "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
+            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "49000",
             "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }
@@ -928,8 +932,6 @@ class HostUIApp(App):
     
     def __init__(self) -> None:
         super().__init__()
-        self.players: List[dict] = []
-        self.player_list_container: VerticalScroll | None = None
         self.session: HostInterface | None = None
         self.login_info: dict | None = None  # populated after login
 

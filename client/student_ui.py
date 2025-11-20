@@ -253,9 +253,9 @@ class MainScreen(Screen):
     SUB_TITLE = "Demo Session"
 
     BINDINGS = [
-        ("a", "add_player", "Add player"),
-        ("r", "remove_player", "Remove player"),
-        ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
+        # ("a", "add_player", "Add player"),
+        # ("r", "remove_player", "Remove player"),
+        # ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
         ("enter", "send_chat", "Send chat input"),
         ("1", "start_quiz", "Start quiz"),  # demo: start quiz
         ("2", "end_question", "End question"),  # demo: end question
@@ -334,9 +334,9 @@ class MainScreen(Screen):
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
         self.theme = THEME          
 
-        # Seed a few players for demo
-        for _ in range(3):
-            self.action_add_player()
+        # # Seed a few players for demo
+        # for _ in range(3):
+        #     self.action_add_player()
 
         # Seed chat
         # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
@@ -361,9 +361,10 @@ class MainScreen(Screen):
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
-            ping = int(p.get("ping", 0)) if str(p.get("ping", "")).isdigit() else p.get("ping", "-")
+            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
             total = int(p.get("score", 0))
+            is_muted = p.get("is_muted", False)
             rounds = [int(v) for v in p.get("rounds", [])]
 
             row = [ping, name, total, *rounds]
@@ -428,19 +429,21 @@ class MainScreen(Screen):
             priv = "host"
         if self.chat_log:
             self.chat_log.append_chat(user, msg, priv)
+        else:
+            logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
 
 
-    # ---------- Actions ----------
-    def action_add_player(self) -> None:
-        pid = f"p{random.randint(1000, 9999)}"
-        name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
-        self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
-        self._rebuild_leaderboard()
+    # # ---------- Actions ----------
+    # def action_add_player(self) -> None:
+    #     pid = f"p{random.randint(1000, 9999)}"
+    #     name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
+    #     self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
+    #     self._rebuild_leaderboard()
 
-    def action_remove_player(self) -> None:
-        if self.players:
-            self.players.pop()
-            self._rebuild_leaderboard()
+    # def action_remove_player(self) -> None:
+    #     if self.players:
+    #         self.players.pop()
+    #         self._rebuild_leaderboard()
 
     def action_start_quiz(self) -> None:
         self.student_load_quiz()
@@ -644,6 +647,7 @@ class LoginScreen(Screen):
             "session_id": self.query_one("#session-id-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-input-input", Input).value.strip(),
             "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
+            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": int(self.query_one("#server-inputs-input2", Input).value.strip() or "49000"),
             "username":  self.query_one("#username-inputs-input", Input).value.strip() or "johndoe123",
         }
@@ -688,29 +692,13 @@ class StudentUIApp(App):
     
     def __init__(self) -> None:
         super().__init__()
-        self.players: List[dict] = []
+        # self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
         # self.login_info: dict = {}
         self.session: StudentInterface | None = None
         
         self.quiz: Quiz | None = None # remove after debugging UI
 
-
-    # Small API points to be used later when wiring event handlers
-    def update_players(self, players: List[dict]) -> None:
-        """Replace the rendered player list with `players`.
-
-        players: list of dicts with keys `player_id` and `name`.
-        """
-        # clear existing
-        if not self.player_list_container:
-            return
-        self.player_list_container.remove_children()
-
-        for p in players:
-            card = PlayerCard(p["player_id"])
-            # mount directly into the scroll container
-            self.player_list_container.mount(card)
 
     # Bindings / actions
 

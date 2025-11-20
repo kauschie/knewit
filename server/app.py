@@ -147,6 +147,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             # HEARTBEAT
             # ------------------------------------------------------
             if msg_type == "pong":
+                await printlog(f"[ws] pong from player={player_id}")
                 if conn["session"]:
                     import time
                     now = time.time()
@@ -155,6 +156,9 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         p.last_pong = now
                         p.last_seen = now
                         p.latency_ms = (now - data.get("ts", now)) * 1000
+                        await printlog(f"[ws] updated latency for player={player_id}: {p.latency_ms:.2f} ms")
+                        
+                await broadcast_lobby(conn["session"])
                 continue
 
             # ------------------------------------------------------
@@ -181,8 +185,9 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     }))
                     continue
 
+                session.add_player(player_id, ws=ws)
                 conn["session"] = session
-                session.connections[player_id] = ws
+                # session.connections[player_id] = ws
 
                 await ws.send_text(json.dumps({
                     "type": "session.created",
@@ -243,7 +248,10 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         continue
 
                 # Add player
-                player = session.add_player(player_id)
+                await printlog(f"[session] player={player_id} joining session id={session.id}")
+                player = session.add_player(player_id, ws=ws)
+                player_list = [p.player_id for p in session.players.values()]
+                await printlog(f"[session] current players in session: {player_list}")
                 if not player:
                     await ws.send_text(json.dumps({
                         "type": "error",
@@ -252,7 +260,11 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     continue
 
                 conn["session"] = session
-                session.connections[player_id] = ws
+                # session.connections[player_id] = ws
+                
+                logger.debug(f"[ws] player={player_id} joined session={session.id}")
+                for pid in session.players:
+                    logger.debug(f"    player in session: {pid}")
 
                 await ws.send_text(json.dumps({
                     "type": "session.joined",
@@ -260,7 +272,13 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     "name": player_id
                 }))
 
-                await broadcast_lobby(session)
+                await ws.send_text(json.dumps({
+                    "type": "lobby.update",
+                    "players": [p.to_dict() for p in session.players.values()],
+                    "state": session.state.value
+}))
+
+                await broadcast_lobby(session, added_player=player_id)
                 continue
 
             # ------------------------------------------------------
@@ -345,7 +363,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     except:
                         pass
                     session.remove_player(kid)
-                    await broadcast_lobby(session)
+                    await broadcast_lobby(session, removed_player=kid)
                 continue
 
             # ------------------------------------------------------
@@ -421,7 +439,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             else:
                 # Normal student disconnect
                 session.remove_player(player_id)
-                await broadcast_lobby(session)
+                await broadcast_lobby(session, removed_player=player_id)
 
 
 async def broadcast(session: QuizSession, payload: dict):
@@ -437,11 +455,19 @@ async def broadcast(session: QuizSession, payload: dict):
         session.connections.pop(pid, None)
 
 
-async def broadcast_lobby(session: QuizSession):
+async def broadcast_lobby(session: QuizSession, removed_player: str | None = None, added_player: str | None = None):
     """Broadcast lobby state to all connections."""
+    players = [p.to_dict() for p in session.players.values()]
+    
+    # identify the change
+    if removed_player:
+        players.append({"removed": removed_player})
+    elif added_player:
+        players.append({"added": added_player})
+    
     await broadcast(session, {
         "type": "lobby.update",
-        "players": [p.to_dict() for p in session.players.values()],
+        "players": players,
         "state": session.state.value
     })
 
@@ -510,9 +536,10 @@ async def ping_loop():
 
                     session.remove_player(pid)
                     await printlog(f"[dead] removed player={pid} in session={session.id}")
+                    await broadcast_lobby(session, removed_player=pid) # implement multiple updates in the future to be more efficient
+                    
                 
                 # Notify remaining clients that lobby changed
-                await broadcast_lobby(session)
 
 async def printlog(message: str):
     """Helper to log messages to both console and file."""

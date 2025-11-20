@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
 import sys
-import logging
 import asyncio
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -10,6 +9,8 @@ from server.quiz_types import StudentQuestion
 from textual.app import App
 from client.ws_client import WSClient
 from common import logger
+# from client.host_ui import MainScreen as HostMainScreen
+# from client.student_ui import MainScreen as StudentMainScreen
 
 
 
@@ -114,7 +115,9 @@ class StudentInterface(SessionInterface):
     async def on_event(self, message: dict):
         msg_type = message.get("type")
         screen = self.get_main_screen()
-
+        logger.debug(f"[StudentInterface] Received message: {message}")
+        logger.debug(f"[StudentInterface] Screen: {screen}")
+        
         if msg_type == "welcome":
             logger.debug("Student contacted server successfully.")
             screen.title = f"Contacted server as {self.username}"
@@ -146,7 +149,8 @@ class StudentInterface(SessionInterface):
         elif msg_type == "quiz.loaded":
             quiz_title = message.get("quiz_title", "Untitled Quiz")
             logger.debug(f"Quiz loaded: {quiz_title}")
-            screen.append_chat("System", f"Quiz '{quiz_title}' loaded.")
+            msg = f"Quiz '{quiz_title}' loaded. Waiting for host to start..."
+            screen.append_chat("System", msg)
 
         elif msg_type == "answer.recorded":
             # Optional: lock UI or log confirmation
@@ -156,7 +160,19 @@ class StudentInterface(SessionInterface):
             screen.end_quiz()
 
         elif msg_type == "lobby.update":
-            screen.update_players(message.get("players", []))
+            logger.debug("[Student Interface] Updating player list from server.")
+            plist = message.get("players", [])
+            rmved = message.get("removed")
+            added = message.get("added")
+            if rmved:
+                screen.append_chat("System", f"Player '{rmved}' has left the session.")
+                plist.pop(rmved, None) # to avoid duplication
+            elif added:
+                screen.append_chat("System", f"Player '{added}' has joined the session.")
+                plist.pop(added, None) # to avoid duplication
+            # self.app.update_players(message.get("players", []))
+            screen.players = message.get("players", [])
+            screen._rebuild_leaderboard()
 
         elif msg_type == "kicked":
             logger.warning("Student was kicked from session.")
@@ -235,6 +251,20 @@ class HostInterface(SessionInterface):
             msg = message.get("msg", "")
             p = message.get("player_id", "Host")
             screen.append_chat(p, msg)
+        elif msg_type == "lobby.update":
+            logger.debug("[Student Interface] Updating player list from server.")
+            plist = message.get("players", [])
+            rmved = message.get("removed")
+            added = message.get("added")
+            if rmved:
+                screen.append_chat("System", f"Player '{rmved}' has left the session.")
+                plist.pop(rmved, None) # to avoid duplication
+            elif added:
+                screen.append_chat("System", f"Player '{added}' has joined the session.")
+                plist.pop(added, None) # to avoid duplication
+            # self.app.update_players(message.get("players", []))
+            screen.players = message.get("players", [])
+            screen._rebuild_leaderboard()
         else:
             await super().on_event(message)
     

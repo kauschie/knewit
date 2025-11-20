@@ -171,7 +171,7 @@ class QuizSession:
     answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
     connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
     
-    def add_player(self, player_id: str) -> Optional[Player]:
+    def add_player(self, player_id: str, ws: WebSocket) -> Optional[Player]:
         """Add player to lobby. Returns None if name is taken."""
         for player in self.players.values():
             if player.player_id == player_id:
@@ -179,6 +179,7 @@ class QuizSession:
         
         player = Player(player_id=player_id)
         self.players[player_id] = player
+        self.connections[player_id] = ws
         return player
     
     def remove_player(self, player_id: str):
