@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Deque
+from collections import deque
 import sys
 import asyncio
 from pathlib import Path
@@ -21,11 +22,16 @@ class SessionInterface:
     session_id: str
     username: str
     password: str
+    host_id: Optional[str] = None
     ws: Optional[WSClient] = field(default=None, init=False)
     ws_task: Optional[asyncio.Task] = field(default=None, init=False)
     is_connected: bool = False
     app: App | None = None
-    ready_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # ready_event: asyncio.Event = field(default_factory=asyncio.Event)
+    pending_events: Deque[dict] = field(default_factory=deque, init=False)
+
+    def __init__(self):
+        self.pending_events = deque()
 
     @classmethod
     def from_dict(cls, data):
@@ -84,12 +90,19 @@ class SessionInterface:
         logger.debug("Sending payload through WSClient.")
         await self.ws.send(payload)
             
-    def get_main_screen(self):
+    def get_screen(self, screen_type:str = "main"):
         """Helper to access the MainScreen instance."""
-        screen = self.app.get_screen("main")
+        if screen_type != "main" and screen_type != "lobby":
+            raise ValueError("screen_type must be 'main' or 'lobby'")
+        if not self.app:
+            raise RuntimeError("App reference is None.")
+        
+        screen = self.app.get_screen(screen_type)
         if screen is None:
-            raise RuntimeError("MainScreen is not mounted yet.")
+            raise RuntimeError(f"{screen_type.capitalize()}Screen is not mounted yet.")
         return screen
+    
+    
 
     async def stop(self):
         """Signal WSClient to shut down and cancel its task."""
@@ -109,35 +122,55 @@ class SessionInterface:
         logger.debug(f"[SessionModel] Received: {message}")
 
 
+
 @dataclass
 class StudentInterface(SessionInterface):
 
     async def on_event(self, message: dict):
-        msg_type = message.get("type")
-        screen = self.get_main_screen()
         logger.debug(f"[StudentInterface] Received message: {message}")
-        logger.debug(f"[StudentInterface] Screen: {screen}")
         
+        # check if screen is available
+
+        ############################################
+        #    Process events for login screen first
+        ############################################
+
+        msg_type = message.get("type")
         if msg_type == "welcome":
             logger.debug("Student contacted server successfully.")
-            screen.title = f"Contacted server as {self.username}"
-            screen.sub_title = f"Session: {self.session_id} 1"
-            # await self.send_join()
-
+            screen = self.get_screen("login")
+            if not screen:
+                logger.debug("[StudentInterface] Login screen not available, ignoring title and subtitle update.")
+            else:
+                screen.title = f"Contacted server as {self.username}"
+                screen.sub_title = f"Session: {self.session_id}"
+            return
+        
         elif msg_type == "session.joined":
-            logger.info(f"Student joined session {self.session_id}.")
+            logger.info(f"[StudentInterface] Student joined session {self.session_id}.")
             self.session_id = message.get("session_id", self.session_id) # update session id if a differeont one as assigned for some reason
             self.username = message.get("name", self.username) # update username if changed by server
+            self.host_id = message.get("host_id", self.host_id)
+            await self.app.push_screen("main", wait_for_dismiss=False)
+            screen = self.get_screen("main")
             screen.title = f"Connected as {self.username}"
             screen.sub_title = f"Session: {self.session_id}"
             screen.append_chat("System", f"Connected to server as {self.username}.")
-            self.app.push_screen("main")
-            # self.ready_event.set()
-            # screen.student_load_quiz()
-            
-        elif msg_type == "chat":
+            return
+
+        ############################################
+        #    Process events for main screen
+        ############################################
+
+        screen = self.get_screen("main")
+        if not screen:
+            self.pending_events.append(message)
+            logger.debug(f"[StudentInterface] Main screen not available, queuing event.")
+            return
+        
+        if msg_type == "chat":
             msg = message.get("msg", "")
-            p = message.get("player_id", "Host")
+            p = message.get("player_id", "unknown")
             screen.append_chat(p, msg)
 
         elif msg_type == "question.next":
@@ -166,10 +199,10 @@ class StudentInterface(SessionInterface):
             added = message.get("added")
             if rmved:
                 screen.append_chat("System", f"Player '{rmved}' has left the session.")
-                plist.pop(rmved, None) # to avoid duplication
+                # plist.pop(rmved, None) # to avoid duplication
             elif added:
                 screen.append_chat("System", f"Player '{added}' has joined the session.")
-                plist.pop(added, None) # to avoid duplication
+                # plist.pop(added, None) # to avoid duplication
             # self.app.update_players(message.get("players", []))
             screen.players = message.get("players", [])
             screen._rebuild_leaderboard()
@@ -230,38 +263,62 @@ class HostInterface(SessionInterface):
 
 
     async def on_event(self, message: dict):
-        msg_type = message.get("type")
-        screen = self.get_main_screen()
         logger.debug(f"[HostInterface] Received message: {message}")
         
+        # check if screen is available
+
+        ############################################
+        #    Process events for login screen first
+        ############################################
+        
+        msg_type = message.get("type")
         if msg_type == "welcome":
-            logger.debug("Host contacted server successfully.")
-            screen.title = f"Contacted server as {self.username}"
-            # screen.sub_title = f"Session: {self.session_id}"
-            await self.send_create()   
+            logger.debug("[HostInterface] Host contacted server successfully.")
+            screen = self.get_screen("login")
+            if not screen:
+                logger.debug("[HostInterface] Login screen not available, ignoring title update.")
+            else:
+                screen.title = f"Contacted server as {self.username}"
+                screen.sub_title = f"Creating Session {self.session_id}"
+                await self.send_create()
+            return
+            
         elif msg_type == "session.created":
-            logger.debug("Host session created successfully.")
-            self.ready_event.set()
-            logger.info(f"Host created session {self.session_id}.")
+            logger.info(f"[HostInterface] Host created {self.session_id} successfully.")
+            # self.ready_event.set()
+            await self.app.push_screen("main", wait_for_dismiss=False)
+            screen = self.get_screen("main")
             screen.title = f"Hosting as {self.username}"
-            # screen.sub_title = f"Session: {self.session_id}"
-            screen.append_chat("System", "Session created successfully.")
-        # elif msg_type == "error":
-        elif msg_type == "chat":
+            screen.sub_title = f"Session: {self.session_id}"
+            screen.append_chat("System", f"Session {self.session_id} created successfully.")
+            return
+       
+        ############################################
+        #    Process events for main screen
+        ############################################
+       
+        screen = self.get_screen("main")
+        if not screen:
+            self.pending_events.append(message)
+            logger.debug(f"[HostInterface] Screen not available, queuing event.")
+            return
+        
+        if msg_type == "chat":
             msg = message.get("msg", "")
             p = message.get("player_id", "Host")
             screen.append_chat(p, msg)
+            
         elif msg_type == "lobby.update":
-            logger.debug("[Student Interface] Updating player list from server.")
+            logger.debug("[Host Interface] Updating player list from server.")
             plist = message.get("players", [])
             rmved = message.get("removed")
             added = message.get("added")
             if rmved:
                 screen.append_chat("System", f"Player '{rmved}' has left the session.")
-                plist.pop(rmved, None) # to avoid duplication
+                # plist.pop(rmved, None) # to avoid duplication
             elif added:
                 screen.append_chat("System", f"Player '{added}' has joined the session.")
-                plist.pop(added, None) # to avoid duplication
+                # plist.pop(added, None) # to avoid duplication
             # self.app.update_players(message.get("players", []))
             screen.players = message.get("players", [])
             screen._rebuild_leaderboard()
@@ -292,12 +349,12 @@ class HostInterface(SessionInterface):
         logger.debug("Sent session.create message to server.")
 
         
-    async def wait_until_create(self, timeout: float = 10.0) -> bool:
-        """Wait until the session has been created (or timeout)."""
-        try:
-            logger.debug("Waiting for created message to arrive...")
-            await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            logger.debug(f"Timed out waiting for session creation after {timeout} seconds.")
-            return False
+    # async def wait_until_create(self, timeout: float = 10.0) -> bool:
+    #     """Wait until the session has been created (or timeout)."""
+    #     try:
+    #         logger.debug("Waiting for created message to arrive...")
+    #         await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
+    #         return True
+    #     except asyncio.TimeoutError:
+    #         logger.debug(f"Timed out waiting for session creation after {timeout} seconds.")
+    #         return False

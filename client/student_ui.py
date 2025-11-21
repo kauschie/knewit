@@ -63,7 +63,7 @@ class TitleUpdate(Message):
 
 
 class MainScreen(Screen):
-    """Host main screen."""
+    """Student main screen."""
 
     CSS = """
     #main-container { 
@@ -249,7 +249,7 @@ class MainScreen(Screen):
     
     """
 
-    TITLE = "KnewIt Host UI Playground"
+    TITLE = "KnewIt Student UI"
     SUB_TITLE = "Demo Session"
 
     BINDINGS = [
@@ -288,7 +288,7 @@ class MainScreen(Screen):
         
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
+        yield Header(show_clock=True, name="<!> KnewIt Student UI Main <!>")
         with Horizontal(id="main-container"):
             with Vertical(id="left-column"):
                 yield QuizQuestionWidget(id="quiz-question-widget")
@@ -323,9 +323,6 @@ class MainScreen(Screen):
         self.chat_log   = self.query_one("#chat-log", RichLogChat)
         self.quiz_question_widget = self.query_one("#quiz-question-widget", QuizQuestionWidget)
         self.username = self.app.session.username
-        # self.title = f"Logged in as {self.username}"
-        # self.sub_title = f"Session: {self.app.session.session_id}"
-        
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
@@ -334,13 +331,13 @@ class MainScreen(Screen):
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
         self.theme = THEME          
 
-        # # Seed a few players for demo
-        # for _ in range(3):
-        #     self.action_add_player()
-
-        # Seed chat
-        # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
-        self.append_chat("System", "Ready. Press a to add a round column; e to append chat.", "sys")
+        session = self.app.session  # or however you're storing it
+        if session and session.pending_events:
+            # run them in order
+            for msg in list(session.pending_events):
+                # no await here; schedule the async handler
+                asyncio.create_task(session.on_event(msg))
+            session.pending_events.clear()
     
     # ---------- Leaderboard helpers ----------
 
@@ -352,7 +349,7 @@ class MainScreen(Screen):
         dt.clear(columns=True)
 
         # 1) Define columns
-        base_labels = ["Ping", "Name", "Total"]
+        base_labels = ["Ping", "Username", "Total"]
         round_labels = [f"R{i}" for i in range(1, self.round_idx + 1)]
 
         # 2) Add columns and capture keys (order matches labels)
@@ -425,25 +422,14 @@ class MainScreen(Screen):
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":
             priv = "sys"
-        elif user == self.username:
+        elif user == self.app.session.host_id:
             priv = "host"
+            
         if self.chat_log:
             self.chat_log.append_chat(user, msg, priv)
         else:
             logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
-
-
-    # # ---------- Actions ----------
-    # def action_add_player(self) -> None:
-    #     pid = f"p{random.randint(1000, 9999)}"
-    #     name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
-    #     self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
-    #     self._rebuild_leaderboard()
-
-    # def action_remove_player(self) -> None:
-    #     if self.players:
-    #         self.players.pop()
-    #         self._rebuild_leaderboard()
+            
 
     def action_start_quiz(self) -> None:
         self.student_load_quiz()
@@ -457,46 +443,13 @@ class MainScreen(Screen):
     def action_end_quiz(self) -> None:
         self.end_quiz()
 
-
-            # self.chat_log.refresh()
-            # self.chat_log.write(msg)
-            
-        # if self.chat_feed:
-        #     self.chat_feed.append(user, msg)
-
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:
             self._send_chat_from_input()
 
-    def action_demo_chat(self) -> None:
-        list_of_random_msgs = [
-            "Hello everyone!",
-            "How's it going?",
-            "This quiz is fun!",
-            "I think I know the answer.",
-            "Can we have a break?",
-            "What's the next question?",
-            "Good luck to all!",
-            "I'm ready for the challenge.",
-            "That was a tough one.",
-            "Can't wait for the results!"
-        ]
-        
-        player_name_list = [p["player_id"] for p in self.players]
-        player_name_list.append(self.username)
-        name = random.choice(player_name_list) if player_name_list else "Player1"
-        line = random.choice(list_of_random_msgs)
-        self.append_chat(user=name, msg=line)
-
     def on_input_submitted(self, e: Input.Submitted) -> None:
         if e.input.id == "chat-input":
             self._send_chat_from_input()
-
-    # def _send_chat_from_input(self) -> None:
-    #     if self.chat_input and (txt := self.chat_input.value.strip()):
-    #         self.chat_input.value = ""
-    #         self.append_chat(user=self.username, msg=txt)
-    
     
     @work
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -513,7 +466,6 @@ class MainScreen(Screen):
     def _send_chat_from_input(self) -> None:
         if self.chat_input and (txt := self.chat_input.value.strip()):
             self.chat_input.value = ""
-            # self.append_chat(user=self.username, msg=txt)
             asyncio.create_task(self.app.session.send_chat(txt))
 
 
@@ -626,7 +578,7 @@ class LoginScreen(Screen):
             logger.error(f"Timeout while connecting to server: {e}")
             return False, "Connection timed out."
 
-        logger.debug("[LoginScreen] Connection established, sending join message...")
+        logger.debug("[Student LoginScreen] Connection established, sending join message...")
         await self.app.session.send_join()
         return True, ""
         

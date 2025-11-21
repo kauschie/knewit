@@ -86,7 +86,12 @@ class RichLogChat(RichLog):
 
     def append_chat(self, user: str, msg: str, role: str | None = None) -> None:
         prefix = Text(datetime.now().strftime("[%H:%M:%S] "), style="dim")
-        prefix.append(user, style={"host":"bold magenta","mod":"bold cyan","sys":"bold yellow"}.get(role,"bold green"))
+        if role == "host":
+            prefix.append(f"👑 {user} 👑", style="bold magenta")
+        elif role == "sys":
+            prefix.append(f"⚙️ {user} ⚙️", style="bold cyan")
+        else:
+            prefix.append(user, style="bold green")
         prefix.append(": ")
         
         try:

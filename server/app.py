@@ -272,16 +272,17 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                 await ws.send_text(json.dumps({
                     "type": "session.joined",
                     "session_id": session.id,
-                    "name": player_id
+                    "name": player_id,
+                    "host_id": session.host_id
                 }))
 
-                # await ws.send_text(json.dumps({
-                #     "type": "lobby.update",
-                #     "players": [p.to_dict() for p in session.players.values()],
-                #     "state": session.state.value
-                # }))
-
                 await broadcast_lobby(session, added_player=player_id)
+                
+                await broadcast(session, {
+                    "type": "chat",
+                    "player_id": "System",
+                    "msg": f"{player_id} has joined the session."
+                })
                 continue
 
             # ------------------------------------------------------

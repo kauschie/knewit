@@ -52,15 +52,6 @@ MAX_CHAT_MESSAGES = 200
 
 logger.debug("host_ui.py starting...")
 
-# ---- shared model -----------------------------------------------------------
-@dataclass
-class SessionModel:
-    session_id: str
-    host_name: str
-    server_ip: str
-    server_port: int
-    
-
 class MainScreen(Screen):
     """Host main screen."""
 
@@ -364,7 +355,8 @@ class MainScreen(Screen):
         self.end_quiz_btn = self.query_one("#end-question", Button)
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
         self.quiz_preview = self.query_one("#quiz-preview", QuizPreviewLog)
-        self.host_name = self.app.login_info.get("host_name", "Host") if self.app.login_info else "Host"
+        # self.host_name = self.app.session.get("username", "Host") if self.app.session else "Host"
+        self.host_name = self.app.session.username if self.app.session else "HostUnknown"
         self.timer = self.query_one("#timer-display", TimeDisplay)
 
         # Setup leaderboard columns
@@ -381,6 +373,15 @@ class MainScreen(Screen):
         # Seed chat
         # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
         self.append_chat("System", "Ready. Press a to add a round column; e to append chat.", "sys")
+        session = self.app.session  # or however you're storing it
+        if session and session.pending_events:
+            logger.debug(f"Processing {len(session.pending_events)} pending events on mount.")
+            # run them in order
+            for msg in list(session.pending_events):
+                # no await here; schedule the async handler
+                asyncio.create_task(session.on_event(msg))
+            session.pending_events.clear()
+    
     
     def on_show(self) -> None:
         """Focus chat input on screen show."""
@@ -820,37 +821,47 @@ class LoginScreen(Screen):
         self.query_one(".error-message").add_class("hidden")
         
         logger.debug("calling _launch_session")
-        _b, msg = await self._launch_session(vals)
+        success, msg = await self._launch_session(vals)
         
-        if not _b:
+        if not success:
             self.title = "Failed to connect to server."
             self._show_error("Failed to connect to server.")
-            logger.debug(f"launch session failed to connect: {msg}")
+            logger.debug(f"[Host]launch session failed to connect: {msg}")
             return
-        else:
-            logger.debug(f"launch session succeeded: {msg}")
-            self.app.login_info = vals
+        if success:
+            logger.debug(f"[Host]launch session succeeded: {msg}")
+            self.title = "Connected to server."
     
     async def _launch_session(self, vals: dict) -> tuple[bool, str]:
         # connect to server
-        if not await self._connect_to_server(vals):
-            return False, "Failed to connect to server."
-        # should have gotten a welcome message by now if successful
-        # issue session.create
+        self.title = "Connecting to server..."
+        if self.app.session is None:
+            self.app.session = HostInterface.from_dict(vals.copy())
+        else:
+            logger.debug("[Host]Reusing existing HostInterface session.")
+            # check if session id or username changed
+            if (self.app.session.session_id != vals["session_id"] or
+                self.app.session.username != vals["host_name"]):
+                
+                logger.debug("[Host]Session ID or username changed; disconnecting and updating session info.")
+                await self.app.session.stop()
+                
+                self.app.session = HostInterface.from_dict(vals.copy())    
+            else:
+                logger.debug("[Host] Session ID and username unchanged; reusing existing session info.")
+                self.app.session.set_from_dict(vals.copy())
+        self.title = "Creating session..."
         try:
-            if not await self.app.session.wait_until_create(timeout=5.0):
+            if not await self.app.session.start():
                 return False, "Session creation failed."
         except asyncio.TimeoutError:
+            logger.error(f"[Host LoginScreen] Session creation timed out.")
             return False, "Session creation timed out."
         
-        self.app.push_screen("main")
+        logger.debug(f"[Host LoginScreen] Session created successfully.")
+        await self.app.session.send_create()
         return True, "Connected and session created."
-    
-    async def _connect_to_server(self, vals: dict) -> bool:
-        self.title = "Connecting to server..."
-        self.app.session = HostInterface.from_dict(vals.copy())
-        success = await self.app.session.start()
-        return success
+
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         
@@ -933,7 +944,6 @@ class HostUIApp(App):
     def __init__(self) -> None:
         super().__init__()
         self.session: HostInterface | None = None
-        self.login_info: dict | None = None  # populated after login
 
     # Bindings / actions
 
