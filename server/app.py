@@ -155,7 +155,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     if p:
                         p.last_pong = now
                         p.last_seen = now
-                        p.latency_ms = (now - data.get("ts", now)) * 1000
+                        p.latency_ms = (now - data.get("ts", now)) * 500 # really * 100 / 2 to get latency instead of RTT
                         await printlog(f"[ws] updated latency for player={player_id}: {p.latency_ms:.2f} ms")
                         
                 await broadcast_lobby(conn["session"])
@@ -272,11 +272,11 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     "name": player_id
                 }))
 
-                await ws.send_text(json.dumps({
-                    "type": "lobby.update",
-                    "players": [p.to_dict() for p in session.players.values()],
-                    "state": session.state.value
-}))
+                # await ws.send_text(json.dumps({
+                #     "type": "lobby.update",
+                #     "players": [p.to_dict() for p in session.players.values()],
+                #     "state": session.state.value
+                # }))
 
                 await broadcast_lobby(session, added_player=player_id)
                 continue
