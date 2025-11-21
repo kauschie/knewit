@@ -199,6 +199,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     f"[session] created session id={session.id} host={player_id}"
                 )
 
+                await broadcast_lobby(session)
                 continue
 
             # ------------------------------------------------------
