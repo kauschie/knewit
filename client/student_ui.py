@@ -429,7 +429,12 @@ class MainScreen(Screen):
             self.chat_log.append_chat(user, msg, priv)
         else:
             logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
-            
+    
+    def append_rainbow_chat(self, user: str, msg: str) -> None:
+        if self.chat_log:
+            self.chat_log.append_rainbow_chat(user, msg)
+        else:
+            logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
 
     def action_start_quiz(self) -> None:
         self.student_load_quiz()

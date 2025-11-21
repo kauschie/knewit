@@ -651,11 +651,12 @@ class MainScreen(Screen):
             self.chat_log.append_chat(user, msg, priv)
         else:
             logger.warning(f"[Host] Chat log not available. Message from {user}: {msg}")
-            # self.chat_log.refresh()
-            # self.chat_log.write(msg)
-            
-        # if self.chat_feed:
-        #     self.chat_feed.append(user, msg)
+  
+    def append_rainbow_chat(self, user: str, msg: str) -> None:
+        if self.chat_log:
+            self.chat_log.append_rainbow_chat(user, msg)
+        else:
+            logger.warning(f"[Host] Chat log not available. Message from {user}: {msg}")
 
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:

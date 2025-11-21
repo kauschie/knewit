@@ -3,6 +3,7 @@ from typing import Optional, Deque
 from collections import deque
 import sys
 import asyncio
+from random import randint
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
@@ -10,9 +11,6 @@ from server.quiz_types import StudentQuestion
 from textual.app import App
 from client.ws_client import WSClient
 from common import logger
-# from client.host_ui import MainScreen as HostMainScreen
-# from client.student_ui import MainScreen as StudentMainScreen
-
 
 
 @dataclass
@@ -155,7 +153,7 @@ class StudentInterface(SessionInterface):
             screen = self.get_screen("main")
             screen.title = f"Connected as {self.username}"
             screen.sub_title = f"Session: {self.session_id}"
-            screen.append_chat("System", f"Connected to server as {self.username}.")
+            # screen.append_chat("System", f"Connected to server as {self.username}.")
             return
 
         ############################################
@@ -198,12 +196,11 @@ class StudentInterface(SessionInterface):
             rmved = message.get("removed")
             added = message.get("added")
             if rmved:
-                screen.append_chat("System", f"'{rmved}' has left the session.")
-                # plist.pop(rmved, None) # to avoid duplication
+                # screen.append_chat("System", f"'{rmved}' has left the session.")
+                screen.append_rainbow_chat("System", f"'{rmved}' has left the session.")
             elif added:
-                screen.append_chat("System", f"'{added}' has joined the session.")
-                # plist.pop(added, None) # to avoid duplication
-            # self.app.update_players(message.get("players", []))
+                # screen.append_chat("System", f"{added} has joined the session.")
+                screen.append_rainbow_chat("System", f"'{added}' has joined the session.")
             screen.players = message.get("players", [])
             screen._rebuild_leaderboard()
 
@@ -290,7 +287,7 @@ class HostInterface(SessionInterface):
             screen = self.get_screen("main")
             screen.title = f"Hosting as {self.username}"
             screen.sub_title = f"Session: {self.session_id}"
-            screen.append_chat("System", f"Session {self.session_id} created successfully.")
+            # screen.append_chat("System", f"Session {self.session_id} created successfully.")
             return
        
         ############################################
@@ -315,11 +312,10 @@ class HostInterface(SessionInterface):
             added = message.get("added")
             if rmved:
                 screen.append_chat("System", f"'{rmved}' has left the session.")
-                # plist.pop(rmved, None) # to avoid duplication
+                # screen.append_rainbow_chat("System", f"{rmved} has left the session.")
             elif added:
-                screen.append_chat("System", f"'{added}' has joined the session.")
-                # plist.pop(added, None) # to avoid duplication
-            # self.app.update_players(message.get("players", []))
+                # screen.append_chat("System", f"'{added}' has joined the session.")
+                screen.append_rainbow_chat("System", f"{added} has joined the session.")
             screen.players = message.get("players", [])
             screen._rebuild_leaderboard()
         else:

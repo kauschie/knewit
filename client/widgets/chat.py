@@ -1,5 +1,6 @@
 # chat_markdown_stream.py
 from __future__ import annotations
+from random import randint
 from typing import List
 from datetime import datetime
 from collections import deque
@@ -8,7 +9,11 @@ from textual.containers import VerticalScroll
 from textual.widgets import Markdown, RichLog
 from textual.events import Resize
 from rich.text import Text
+from rich.highlighter import Highlighter 
 from common import logger
+
+
+
 
 
 class MarkdownChat(VerticalScroll):
@@ -104,6 +109,25 @@ class RichLogChat(RichLog):
         self.history.append(line)
         # no width= -> allow expand/shrink to work
         self.write(line, expand=True, shrink=True)
+        
+    class RainbowHighlighter(Highlighter):
+        def highlight(self, text: Text) -> None:
+            for index in range(len(text)):
+                text.stylize(f"color({randint(16, 255)})", index, index + 1)
+
+    def append_rainbow_chat(self, user: str, msg: str) -> None:
+        timestamp = Text(datetime.now().strftime("[%H:%M:%S] "), style="dim")
+
+        user_text = Text(user)
+        self.RainbowHighlighter().highlight(user_text)
+
+        # line = timestamp + user_text + Text(f": {msg}", style="bold green blink")
+        line = Text.assemble(timestamp, user_text, ": ", Text(f"{msg}", style="bold green blink"))
+
+        self.history.append(line)
+        self.write(line, expand=True, shrink=True)
+
+
 
     def on_resize(self, _: Resize) -> None:
         # reflow at the new width
