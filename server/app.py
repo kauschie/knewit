@@ -187,6 +187,8 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
                 session.add_player(player_id, ws=ws)
                 conn["session"] = session
+                player_list = [p.player_id for p in session.players.values()]
+                await printlog(f"[session] current players in session: {player_list}")
                 # session.connections[player_id] = ws
 
                 await ws.send_text(json.dumps({
@@ -199,7 +201,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     f"[session] created session id={session.id} host={player_id}"
                 )
 
-                await broadcast_lobby(session)
+                await broadcast_lobby(session, added_player=player_id)
                 continue
 
             # ------------------------------------------------------
