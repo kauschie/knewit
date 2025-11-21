@@ -278,11 +278,6 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
                 await broadcast_lobby(session, added_player=player_id)
                 
-                await broadcast(session, {
-                    "type": "chat",
-                    "player_id": "System",
-                    "msg": f"{player_id} has joined the session."
-                })
                 continue
 
             # ------------------------------------------------------

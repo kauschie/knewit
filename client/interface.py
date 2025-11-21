@@ -198,10 +198,10 @@ class StudentInterface(SessionInterface):
             rmved = message.get("removed")
             added = message.get("added")
             if rmved:
-                screen.append_chat("System", f"Player '{rmved}' has left the session.")
+                screen.append_chat("System", f"'{rmved}' has left the session.")
                 # plist.pop(rmved, None) # to avoid duplication
             elif added:
-                screen.append_chat("System", f"Player '{added}' has joined the session.")
+                screen.append_chat("System", f"'{added}' has joined the session.")
                 # plist.pop(added, None) # to avoid duplication
             # self.app.update_players(message.get("players", []))
             screen.players = message.get("players", [])
@@ -314,10 +314,10 @@ class HostInterface(SessionInterface):
             rmved = message.get("removed")
             added = message.get("added")
             if rmved:
-                screen.append_chat("System", f"Player '{rmved}' has left the session.")
+                screen.append_chat("System", f"'{rmved}' has left the session.")
                 # plist.pop(rmved, None) # to avoid duplication
             elif added:
-                screen.append_chat("System", f"Player '{added}' has joined the session.")
+                screen.append_chat("System", f"'{added}' has joined the session.")
                 # plist.pop(added, None) # to avoid duplication
             # self.app.update_players(message.get("players", []))
             screen.players = message.get("players", [])

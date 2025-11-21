@@ -366,13 +366,6 @@ class MainScreen(Screen):
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
         self.theme = THEME          
 
-        # Seed a few players for demo
-        # for _ in range(3):
-        #     self.action_add_player()
-
-        # Seed chat
-        # self.chat_feed.append("System", "Ready. Press a to add a round column; e to append chat.", )
-        self.append_chat("System", "Ready. Press a to add a round column; e to append chat.", "sys")
         session = self.app.session  # or however you're storing it
         if session and session.pending_events:
             logger.debug(f"Processing {len(session.pending_events)} pending events on mount.")
