@@ -458,16 +458,6 @@ class MainScreen(Screen):
         self.append_chat(user="System", msg=f"Quiz loaded: [b]{self.selected_quiz.get('title','(untitled)')}[/b]")
         self.quiz_preview.set_quiz(self.selected_quiz)
         self.quiz_preview.set_show_answers(False)
-            
-        
-        
-        #2 reset round state + leaderboard columns
-        ### move this to the server
-        # self.round_idx = 0
-        # for p in self.players:
-        #     p["score"] = 0
-        #     p["rounds"] = []
-        # self._rebuild_leaderboard()
         
         #3 reset plots
         self.query_one("#percent-plot", PercentCorrectPlot).set_series([])
@@ -479,6 +469,11 @@ class MainScreen(Screen):
         #4 enable start quiz and next buttons
         self.toggle_buttons()
 
+    def update_lobby(self, players: list[dict]) -> None:
+        """Update the lobby player list."""
+        self.players = players
+        self._rebuild_leaderboard()
+        self._rebuild_user_controls()
 
     # ---------- Host Control Actions ----------
     
@@ -668,6 +663,9 @@ class MainScreen(Screen):
             self.chat_log.append_chat(user, msg, priv)
         else:
             logger.warning(f"[Host] Chat log not available. Message from {user}: {msg}")
+  
+    def show_system_message(self, text: str) -> None:
+        self.chat_log.append_chat("System", text)
   
     def append_rainbow_chat(self, user: str, msg: str) -> None:
         if self.chat_log:

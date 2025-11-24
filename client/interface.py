@@ -203,8 +203,7 @@ class StudentInterface(SessionInterface):
             elif added:
                 # screen.append_chat("System", f"{added} has joined the session.")
                 screen.append_rainbow_chat("System", f"'{added}' has joined the session.")
-            screen.players = message.get("players", [])
-            screen._rebuild_leaderboard()
+            screen.update_lobby(plist)
 
         elif msg_type == "kicked":
             logger.warning("Student was kicked from session.")
@@ -330,12 +329,16 @@ class HostInterface(SessionInterface):
             elif added:
                 # screen.append_chat("System", f"'{added}' has joined the session.")
                 screen.append_rainbow_chat("System", f"{added} has joined the session.")
-            screen.players = message.get("players", [])
-            screen._rebuild_leaderboard()
+            screen.update_lobby(plist)
             
         elif msg_type == "histogram.update":
             bins = message.get("bins", [])
             screen.update_answer_histogram(bins)
+            
+            # look into difference between question.histogram and histogram.update
+        elif msg_type == "question.histogram":
+            histogram = message.get("histogram", {})
+            screen.update_question_histogram(histogram)
         
         else:
             await super().on_event(message)

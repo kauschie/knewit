@@ -370,6 +370,11 @@ class MainScreen(Screen):
         # 4) Sort by Total (desc). Use the column KEY, not the label string.
         dt.sort(total_key, reverse=True)
 
+    def update_lobby(self, players: list[dict]) -> None:
+        """Update the lobby player list."""
+        self.players = players
+        self._rebuild_leaderboard()
+
     ## Public API to update the quiz question widget
 
     def set_quiz_question(self, question: StudentQuestion, duration:int) -> None:
