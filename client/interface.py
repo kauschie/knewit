@@ -5,8 +5,10 @@ import sys
 import asyncio
 from random import randint
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
+from client.widgets.quiz_question_widget import QuizQuestionWidget
 from server.quiz_types import StudentQuestion
 from textual.app import App
 from client.ws_client import WSClient
@@ -238,11 +240,12 @@ class StudentInterface(SessionInterface):
             "password": self.password
         })
         
-    async def send_answer(self, index: int):
+    async def send_answer(self, index: int, elapsed: float):
         """Send an answer selection to the server."""
         await self.send({
             "type": "answer.submit",
-            "answer_idx": index,   # <-- match server
+            "answer_idx": index,
+            "elapsed": elapsed
         })
 
     async def send_chat(self, msg: str):
@@ -253,6 +256,15 @@ class StudentInterface(SessionInterface):
         })
 
 
+    async def send_answer(self, widget: QuizQuestionWidget):
+        if widget.answered_option is None:
+            return
+        payload = {
+            "type": "answer.submit",
+            "answer_idx": widget.answered_option,
+            "elapsed": widget.answered_time
+        }
+        await self.send(payload)
 
 
 @dataclass
@@ -290,6 +302,8 @@ class HostInterface(SessionInterface):
             # screen.append_chat("System", f"Session {self.session_id} created successfully.")
             return
        
+        
+       
         ############################################
         #    Process events for main screen
         ############################################
@@ -318,6 +332,11 @@ class HostInterface(SessionInterface):
                 screen.append_rainbow_chat("System", f"{added} has joined the session.")
             screen.players = message.get("players", [])
             screen._rebuild_leaderboard()
+            
+        elif msg_type == "histogram.update":
+            bins = message.get("bins", [])
+            screen.update_answer_histogram(bins)
+        
         else:
             await super().on_event(message)
     

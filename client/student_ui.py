@@ -400,20 +400,24 @@ class MainScreen(Screen):
                 self.set_quiz_question(sq)
                 return
 
-    def end_question(self) -> None:
+    def end_question(self, correct_option: int = 1) -> None:
         # logger.debug("Ending question from MainScreen.")
+        # shoudl take in the correct answer index and display it
+        # all timing logic will be handled on submission or via orchestrator recording non-submitted answers
+        
+        
         if self.quiz_question_widget and self.app.quiz is not None:
             self.quiz_question_widget.end_question()
-            user_answer_time = self.quiz_question_widget.answered_time
+            # user_answer_time = self.quiz_question_widget.answered_time
             # logger.debug(f"User answered in: {user_answer_time} seconds.")
             # logger.debug("Question ended.")
             # logger.debug(f"User answer was: " + str(self.quiz_question_widget.answered_option))
             # logger.debug(f"Time taken to answer: " + str(user_answer_time) + " seconds.")
-            correct_option = self.app.quiz.questions[self.round_idx].correct_idx
+            # correct_option = self.app.quiz.questions[self.round_idx].correct_idx # get correct answer index from demo quiz
             self.quiz_question_widget.show_correct(correct_option)
     
     def end_quiz(self) -> None:
-        logger.debug("Ending quiz from MainScreen.")
+        # logger.debug("Ending quiz from MainScreen.")
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
             self.round_idx = 0
@@ -436,17 +440,17 @@ class MainScreen(Screen):
         else:
             logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
 
-    def action_start_quiz(self) -> None:
-        self.student_load_quiz()
+    # def action_start_quiz(self) -> None:
+    #     self.student_load_quiz()
 
-    def action_next_question(self) -> None:
-        self.next_question()
+    # def action_next_question(self) -> None:
+    #     self.next_question()
 
-    def action_end_question(self) -> None:
-        self.end_question()
+    # def action_end_question(self) -> None:
+    #     self.end_question()
     
-    def action_end_quiz(self) -> None:
-        self.end_quiz()
+    # def action_end_quiz(self) -> None:
+    #     self.end_quiz()
 
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:
@@ -463,9 +467,9 @@ class MainScreen(Screen):
             self._send_chat_from_input()
             
         elif bid.startswith("option-"):
-            # Determine which index the user clicked (A = 0, B = 1, ...)
-            idx = ord(bid[-1].upper()) - ord("A")
-            await self.app.session.send_answer(idx)
+            if self.quiz_question_widget is None:
+                return
+            await self.app.session.send_answer(self.quiz_question_widget)
 
 
     def _send_chat_from_input(self) -> None:

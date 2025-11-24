@@ -160,97 +160,281 @@ class Quiz:
                 continue
         return quizzes
 
+# @dataclass
+# class QuizSession:
+#     id: str
+#     host_id: str
+#     state: QuizState = QuizState.LOBBY
+#     players: Dict[str, Player] = field(default_factory=dict)  # player_id -> Player
+#     quiz: Optional[Quiz] = None
+#     password: Optional[str] = None
+#     current_question_idx: int = -1
+#     answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
+#     connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
+#     answer_time_log: Dict[int, Dict[str, float]] = field(default_factory=dict)  # question_idx -> {player_id: answer_time}
+    
+    
+#     def add_player(self, player_id: str, ws: WebSocket) -> Optional[Player]:
+#         """Add player to lobby. Returns None if name is taken."""
+#         for player in self.players.values():
+#             if player.player_id == player_id:
+#                 return None
+        
+#         player = Player(player_id=player_id)
+#         self.players[player_id] = player
+#         self.connections[player_id] = ws
+#         return player
+    
+#     def remove_player(self, player_id: str):
+#         """Remove a player from the session."""
+#         self.players.pop(player_id, None)
+#         self.connections.pop(player_id, None)
+    
+#     def load_quiz(self, quiz: Quiz):
+#         """Load a quiz into the session."""
+#         self.quiz = quiz
+#         self.current_question_idx = -1
+#         self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+#         for player in self.players.values():
+#             player.score = 0
+#             player.answered_current = False
+    
+#     def start_quiz(self) -> bool:
+#         """Start the quiz. Returns False if no quiz loaded."""
+#         if not self.quiz or len(self.quiz.questions) == 0:
+#             return False
+#         self.state = QuizState.ACTIVE
+#         return True
+    
+#     def next_question(self) -> Optional[Question]:
+#         """Move to next question. Returns None if quiz is over."""
+#         if not self.quiz:
+#             return None
+        
+#         self.current_question_idx += 1
+#         if self.current_question_idx >= len(self.quiz.questions):
+#             self.state = QuizState.FINISHED
+#             return None
+        
+#         # Reset answer tracking
+#         self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+#         for player in self.players.values():
+#             player.answered_current = False
+        
+#         return self.quiz.questions[self.current_question_idx]
+    
+#     def get_current_question(self) -> Optional[Question]:
+#         """Get current question."""
+#         if not self.quiz or self.current_question_idx < 0:
+#             return None
+#         if self.current_question_idx >= len(self.quiz.questions):
+#             return None
+#         return self.quiz.questions[self.current_question_idx]
+    
+#     def record_answer(self, player_id: str, answer_idx: int) -> bool:
+#         """Record answer. Returns True if correct."""
+#         player = self.players.get(player_id)
+#         if not player or player.answered_current:
+#             return False
+        
+#         player.answered_current = True
+        
+#         if answer_idx in self.answer_counts:
+#             self.answer_counts[answer_idx] += 1
+        
+#         question = self.get_current_question()
+#         if question and answer_idx == question.correct_idx:
+#             player.score += 1
+#             return True
+        
+#         return False
+    
+#     def to_dict(self) -> dict:
+#         """Convert to dict for JSON."""
+#         return {
+#             "session_id": self.id,
+#             "host_id": self.host_id,
+#             "state": self.state.value,
+#             "password": self.password,
+#             "players": [p.to_dict() for p in self.players.values()],
+#             "quiz_title": self.quiz.title if self.quiz else None,
+#             "current_question": self.current_question_idx + 1,
+#             "total_questions": len(self.quiz.questions) if self.quiz else 0
+#         }
+
+
 @dataclass
 class QuizSession:
     id: str
     host_id: str
     state: QuizState = QuizState.LOBBY
-    players: Dict[str, Player] = field(default_factory=dict)  # player_id -> Player
+
+    # Core entities
+    players: Dict[str, Player] = field(default_factory=dict)          # player_id -> Player
     quiz: Optional[Quiz] = None
     password: Optional[str] = None
+
+    # Question/answer runtime state
     current_question_idx: int = -1
-    answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
-    connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
-    
-    
-    
+    # quick-access counts, mainly for host histogram; kept in sync with answer_log
+    answer_counts: Dict[int, int] = field(
+        default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0}
+    )
+    # persistent per-question answers: q_index -> {player_id: answer_idx}
+    answer_log: Dict[int, Dict[str, int]] = field(default_factory=dict)
+    answer_time_log: Dict[int, Dict[str, float]] = field(default_factory=dict)  # question_idx -> {player_id: answer_time}
+
+    # Live connections
+    connections: Dict[str, WebSocket] = field(default_factory=dict)   # player_id -> ws
+
+    # ---------- Player management ----------
+
     def add_player(self, player_id: str, ws: WebSocket) -> Optional[Player]:
         """Add player to lobby. Returns None if name is taken."""
         for player in self.players.values():
             if player.player_id == player_id:
                 return None
-        
+
         player = Player(player_id=player_id)
         self.players[player_id] = player
         self.connections[player_id] = ws
         return player
-    
-    def remove_player(self, player_id: str):
+
+    def remove_player(self, player_id: str) -> None:
         """Remove a player from the session."""
         self.players.pop(player_id, None)
         self.connections.pop(player_id, None)
-    
-    def load_quiz(self, quiz: Quiz):
-        """Load a quiz into the session."""
+
+    # ---------- Quiz lifecycle ----------
+
+    def load_quiz(self, quiz: Quiz) -> None:
+        """Load a quiz into the session and reset per-quiz state."""
         self.quiz = quiz
         self.current_question_idx = -1
         self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+        self.answer_log.clear()
+        self.state = QuizState.LOBBY
+
+        # Reset player-level quiz state
         for player in self.players.values():
             player.score = 0
             player.answered_current = False
-    
+
     def start_quiz(self) -> bool:
-        """Start the quiz. Returns False if no quiz loaded."""
+        """Start the quiz. Returns False if no quiz is loaded."""
         if not self.quiz or len(self.quiz.questions) == 0:
             return False
         self.state = QuizState.ACTIVE
+        # We leave current_question_idx at -1; first call to next_question will move to 0.
         return True
-    
+
     def next_question(self) -> Optional[Question]:
-        """Move to next question. Returns None if quiz is over."""
+        """Advance to the next question. Returns None if the quiz is over."""
         if not self.quiz:
             return None
-        
+
         self.current_question_idx += 1
         if self.current_question_idx >= len(self.quiz.questions):
+            # No more questions; mark session as finished
             self.state = QuizState.FINISHED
             return None
-        
-        # Reset answer tracking
-        self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
-        for player in self.players.values():
-            player.answered_current = False
-        
+
+        # Initialize tracking for this question
+        self._reset_current_question_state()
         return self.quiz.questions[self.current_question_idx]
-    
+
     def get_current_question(self) -> Optional[Question]:
-        """Get current question."""
+        """Return the current question, or None if not in a valid range."""
         if not self.quiz or self.current_question_idx < 0:
             return None
         if self.current_question_idx >= len(self.quiz.questions):
             return None
         return self.quiz.questions[self.current_question_idx]
-    
-    def record_answer(self, player_id: str, answer_idx: int) -> bool:
-        """Record answer. Returns True if correct."""
+
+    # ---------- Answer tracking ----------
+
+    def _reset_current_question_state(self) -> None:
+        """Reset per-question state (answers, flags, counts) for the active question."""
+        # Reset counts
+        self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+
+        # Ensure log bucket exists for this question
+        if self.current_question_idx >= 0:
+            self.answer_log[self.current_question_idx] = {}
+
+        # Reset each player's "answered_current" flag
+        for player in self.players.values():
+            player.answered_current = False
+
+    def record_answer(self, player_id: str, answer_idx: int, elapsed: float | None) -> bool:
+        """
+        Record an answer for the current question.
+
+        Returns True if the answer was correct, False otherwise.
+        Rejects answers if:
+        - player doesn't exist
+        - no current question
+        - player already answered this question
+        """
         player = self.players.get(player_id)
-        if not player or player.answered_current:
+        if not player:
             return False
+
+        question = self.get_current_question()
+        if question is None:
+            return False
+
+        q_idx = self.current_question_idx
+        # Ensure we have a log bucket for this question
+        bucket = self.answer_log.setdefault(q_idx, {})
+        tbucket = self.answer_time_log.setdefault(q_idx, {})
+
+        # Reject if they already answered (either via flag or log)
+        if player.answered_current or player_id in bucket:
+            return False
+
+        # Record in answer_log
+        bucket[player_id] = answer_idx
         
-        player.answered_current = True
-        
+        if elapsed is not None:
+            tbucket[player_id] = elapsed
+
+        # Update quick counts (for host histogram)
         if answer_idx in self.answer_counts:
             self.answer_counts[answer_idx] += 1
-        
-        question = self.get_current_question()
-        if question and answer_idx == question.correct_idx:
+
+        # Mark player as having answered
+        player.answered_current = True
+
+        # Score if correct
+        if 0 <= answer_idx < len(question.options) and answer_idx == question.correct_idx:
             player.score += 1
             return True
-        
+
         return False
-    
+
+    def get_answer_counts(self, question_idx: Optional[int] = None) -> List[int]:
+        """
+        Compute answer counts for the given question index (or current question).
+        Returns a list sized to 4 (A–D) for now.
+        """
+        if question_idx is None:
+            question_idx = self.current_question_idx
+
+        if question_idx is None or question_idx < 0:
+            return [0, 0, 0, 0]
+
+        bucket = self.answer_log.get(question_idx, {})
+        counts = [0, 0, 0, 0]
+        for _, ans in bucket.items():
+            if 0 <= ans < len(counts):
+                counts[ans] += 1
+        return counts
+
+    # ---------- Serialization ----------
+
     def to_dict(self) -> dict:
-        """Convert to dict for JSON."""
+        """Convert session state to a dict for JSON (for admin/debug)."""
         return {
             "session_id": self.id,
             "host_id": self.host_id,
@@ -258,9 +442,12 @@ class QuizSession:
             "password": self.password,
             "players": [p.to_dict() for p in self.players.values()],
             "quiz_title": self.quiz.title if self.quiz else None,
-            "current_question": self.current_question_idx + 1,
-            "total_questions": len(self.quiz.questions) if self.quiz else 0
+            "current_question": self.current_question_idx + 1
+            if self.current_question_idx >= 0 else 0,
+            "total_questions": len(self.quiz.questions) if self.quiz else 0,
         }
+
+
 
 # Global state (in real app, use Redis)
 quiz_sessions: Dict[str, QuizSession] = {}
@@ -287,3 +474,8 @@ def get_session(session_id: str) -> Optional[QuizSession]:
 def delete_session(session_id: str):
     """Delete a session."""
     quiz_sessions.pop(session_id, None)
+
+
+
+
+

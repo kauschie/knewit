@@ -383,8 +383,23 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             # STUDENT ACTIONS
             # ------------------------------------------------------
             if msg_type == "answer.submit":
-                idx = int(data.get("answer_idx", 0))
-                correct = session.record_answer(player_id, idx)
+                answer_idx = int(data.get("answer_idx", -1))
+                elapsed = data.get("elapsed", None)
+                correct = session.record_answer(player_id, answer_idx, elapsed)
+                
+                # update histogram for host
+                hist = session.get_answer_counts()
+                host_ws = session.connections.get(session.host_id)
+                if host_ws:
+                    try:
+                        await host_ws.send_text(json.dumps({
+                            "type": "question.histogram",
+                            "question": session.current_question_idx,
+                            "histogram": hist
+                        }))
+                    except:
+                        pass
+                
                 await ws.send_text(json.dumps({
                     "type": "answer.recorded",
                     "correct": correct

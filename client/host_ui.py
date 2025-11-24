@@ -276,6 +276,7 @@ class MainScreen(Screen):
         self.log_list: Log | None = None
         self.extra_cols: list[str] = []  # track dynamic round columns
         self.timer: TimeDisplay | None = None
+        self.hist_plot: AnswerHistogramPlot | None = None
         
         # session controls
         self.session_controls_area: Horizontal | None = None
@@ -354,6 +355,7 @@ class MainScreen(Screen):
         self.nq_btn = self.query_one("#next-question", Button)
         self.end_quiz_btn = self.query_one("#end-question", Button)
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
+        self.hist_plot = self.query_one("#answers-plot", AnswerHistogramPlot)
         self.quiz_preview = self.query_one("#quiz-preview", QuizPreviewLog)
         # self.host_name = self.app.session.get("username", "Host") if self.app.session else "Host"
         self.host_name = self.app.session.username if self.app.session else "HostUnknown"
@@ -471,7 +473,8 @@ class MainScreen(Screen):
         self.query_one("#percent-plot", PercentCorrectPlot).set_series([])
         labels = self._get_labels_for_question(0) or ["A", "B", "C", "D"]
 
-        self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(labels)
+        # self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(labels)
+        self.hist_plot.reset_question(labels)
 
         #4 enable start quiz and next buttons
         self.toggle_buttons()
@@ -501,7 +504,8 @@ class MainScreen(Screen):
         # If your quiz has options per question, set labels from question 0.
         labels = self._get_labels_for_question(self.round_idx - 1)
         # labels = ["A", "B", "C", "D"]  # TODO: derive from self.selected_quiz
-        self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
+        # self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
+        self.hist_plot.reset_question(labels)
         # Optional: update a label like "Q 1 / N" here
         # self.quiz_preview.set_question_label(f"Q {self.round_idx} / {len(self.selected_quiz.get('questions', []))}")
         self.begin_question(0)
@@ -526,7 +530,8 @@ class MainScreen(Screen):
         # labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
         labels = self._get_labels_for_question(q_idx)
         logger.debug(f"Question {q_idx} labels: {labels}")
-        self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
+        self.hist_plot.reset_question(labels)
+        # self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
         # Also clear any per-question timers, badges, etc.
         
         self.simulate_responses()
@@ -551,21 +556,20 @@ class MainScreen(Screen):
         self.round_idx += 1
         self.begin_question(self.round_idx - 1) 
         
-    def simulate_responses(self) -> None:
-        """Demo method to simulate random answers arriving over time."""
-        async def _sim():
-            for _ in range(len(self.players)):
-                await asyncio.sleep(random.uniform(0.1, 0.5))
-                choice = random.randint(0, 3)
-                self.tally_answer(choice)
-        asyncio.create_task(_sim())     
+    # def simulate_responses(self) -> None:
+    #     """Demo method to simulate random answers arriving over time."""
+    #     async def _sim():
+    #         for _ in range(len(self.players)):
+    #             await asyncio.sleep(random.uniform(0.1, 0.5))
+    #             choice = random.randint(0, 3)
+    #             self.tally_answer(choice)
+    #     asyncio.create_task(_sim())     
         
 
-    def tally_answer(self, choice_index: int) -> None:
-        """Increment histogram as answers arrive in real time."""
-        answers_plot = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot)
-        if 0 <= choice_index < len(answers_plot.counts):
-            answers_plot.bump(choice_index)
+    # def tally_answer(self, choice_index: int) -> None:
+    #     """Increment histogram as answers arrive in real time."""
+    #     if 0 <= choice_index < len(self.hist_plot.counts):
+    #         self.hist_plot.bump(choice_index)
 
     def end_question(self) -> None:
         """Close the question: freeze histogram and append % correct."""
@@ -631,6 +635,11 @@ class MainScreen(Screen):
     def action_end_question(self) -> None:
         self.end_question()
         
+    def update_answer_histogram(self, bins: List[int]) -> None:
+        """Update the answer histogram with new bin counts."""
+        if self.hist_plot:
+            self.hist_plot.counts = tuple(bins)
+        
     def calculate_percent_correct(self) -> float:
         """Demo method to calculate a random percent correct."""
         if not self.selected_quiz:
@@ -639,7 +648,7 @@ class MainScreen(Screen):
         correct_index = self.quiz_preview.get_correct_answer_index()
         if correct_index is None:
             return 0.0
-        responses = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).counts
+        responses = self.hist_plot.counts
         sum_responses = sum(responses)
         if sum_responses == 0:
             return 0.0
