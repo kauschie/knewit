@@ -296,16 +296,30 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             # HOST ONLY ACTIONS
             # ------------------------------------------------------
             if msg_type == "quiz.load" and conn["is_host"]:
+                await printlog(f"[quiz] host={player_id} loading quiz into session={session.id}")
                 quiz_data = data.get("quiz")
                 if quiz_data:
                     quiz = Quiz.from_dict(quiz_data)
                     session.load_quiz(quiz)
+                    await printlog(f"[quiz] loaded quiz '{quiz.title}' with {len(quiz.questions)} questions for session={session.id}")
+
+    
+                    #################
+                    #   initialize quiz state in orchestrator
+                    #################
 
                     await broadcast(session, {
                         "type": "quiz.loaded",
                         "quiz_title": quiz.title,
                         "num_questions": len(quiz.questions)
                     })
+                    await printlog(f"[quiz] loaded quiz '{quiz.title}' with {len(quiz.questions)} questions for session={session.id}")
+                else:
+                    await ws.send_text(json.dumps({
+                        "type": "error",
+                        "message": "No quiz data provided"
+                    }))
+                    await printlog(f"[quiz] no quiz data provided by host={player_id} for session={session.id}")
                 continue
 
             if msg_type == "quiz.start" and conn["is_host"]:

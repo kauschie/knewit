@@ -345,12 +345,9 @@ class HostInterface(SessionInterface):
         logger.debug("Sent session.create message to server.")
 
         
-    # async def wait_until_create(self, timeout: float = 10.0) -> bool:
-    #     """Wait until the session has been created (or timeout)."""
-    #     try:
-    #         logger.debug("Waiting for created message to arrive...")
-    #         await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
-    #         return True
-    #     except asyncio.TimeoutError:
-    #         logger.debug(f"Timed out waiting for session creation after {timeout} seconds.")
-    #         return False
+    async def send_load_quiz(self, quiz_data: dict):
+        """Send quiz data to the server."""
+        await self.send({
+            "type": "quiz.load",
+            "quiz": quiz_data
+        })

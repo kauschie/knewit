@@ -438,26 +438,34 @@ class MainScreen(Screen):
 
 
 # --------- quiz internals ---------
-    def _initialize_quiz(self) -> None:
+    async def _initialize_quiz(self) -> None:
         if not self.selected_quiz:
-            self.append_chat(user=self.host_name, msg="[red]No quiz data provided to initialize.")
+            self.append_chat(user="System", msg="[red]No quiz data provided to initialize.")
             logger.error("No quiz data provided to initialize.")
         # self.selected_quiz = quiz # already set in on_button_pressed
         
         #1 setup preview panel
-        if self.quiz_preview:
-            logger.debug(f"Setting quiz preview: quiz:{self.selected_quiz}")
-            self.append_chat(user="Server", msg=f"Quiz loaded: [b]{self.selected_quiz.get('title','(untitled)')}[/b]")
-            self.quiz_preview.set_quiz(self.selected_quiz)
-            self.quiz_preview.set_show_answers(False)
+        if not self.quiz_preview:
+            logger.error("Quiz preview panel not available to set quiz.")
+            self.append_chat(user="System", msg="[red]Quiz preview panel not set.")
+            return
+        
+        await self.app.session.send_load_quiz(self.selected_quiz)
+        
+        logger.debug(f"Setting quiz preview: quiz:{self.selected_quiz}")
+        self.append_chat(user="System", msg=f"Quiz loaded: [b]{self.selected_quiz.get('title','(untitled)')}[/b]")
+        self.quiz_preview.set_quiz(self.selected_quiz)
+        self.quiz_preview.set_show_answers(False)
             
         
+        
         #2 reset round state + leaderboard columns
-        self.round_idx = 0
-        for p in self.players:
-            p["score"] = 0
-            p["rounds"] = []
-        self._rebuild_leaderboard()
+        ### move this to the server
+        # self.round_idx = 0
+        # for p in self.players:
+        #     p["score"] = 0
+        #     p["rounds"] = []
+        # self._rebuild_leaderboard()
         
         #3 reset plots
         self.query_one("#percent-plot", PercentCorrectPlot).set_series([])
@@ -703,10 +711,10 @@ class MainScreen(Screen):
         elif bid.startswith("load-quiz"):
             self.selected_quiz = await self.app.push_screen_wait(QuizSelector())  # get data
             if not self.selected_quiz:
-                self.append_chat(user=self.host_name, msg="Quiz loading cancelled.")
+                self.append_chat(user="System", msg="Quiz loading cancelled.")
                 return
             self.append_chat(user=self.host_name, msg=f"Loaded quiz: {self.selected_quiz['title']}")
-            self._initialize_quiz()
+            await self._initialize_quiz()
         elif bid == "chat-send":
             self._send_chat_from_input()
         elif bid == "start-quiz":
@@ -884,8 +892,8 @@ class LoginScreen(Screen):
             "app": self.app,
             "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
-            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "49000",
             "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }

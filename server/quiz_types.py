@@ -87,6 +87,7 @@ class Player:
     latency_ms: Optional[float] = None
     last_seen: Optional[float] = None
     is_muted: bool = False
+    # responses: List[Dict] = field(default_factory=list)  # List of {question_id, answer_idx, correct, answer_time} // moving to answer_log
 
     status: str = "active" # This is for timeout and recovery "active" / "stale" / "removed"
 
@@ -171,6 +172,8 @@ class QuizSession:
     answer_counts: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
     connections: Dict[str, WebSocket] = field(default_factory=dict)  # player_id -> ws
     
+    
+    
     def add_player(self, player_id: str, ws: WebSocket) -> Optional[Player]:
         """Add player to lobby. Returns None if name is taken."""
         for player in self.players.values():
@@ -191,6 +194,10 @@ class QuizSession:
         """Load a quiz into the session."""
         self.quiz = quiz
         self.current_question_idx = -1
+        self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
+        for player in self.players.values():
+            player.score = 0
+            player.answered_current = False
     
     def start_quiz(self) -> bool:
         """Start the quiz. Returns False if no quiz loaded."""
