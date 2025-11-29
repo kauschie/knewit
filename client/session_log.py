@@ -8,6 +8,7 @@
 #
 # Event types (client perspective):
 #   [session-start]    : session + client metadata
+#   [session-end]      : session termination (graceful or not)
 #   [question-received]: quiz question payload from host/server
 #   [answer-submitted] : answer sent by this client
 #   [answer-received]  : host/server announcement of correct answer
@@ -17,7 +18,8 @@
 #
 # These logs are used to reconstruct last session state after a dropped
 # connection: which questions were seen, what we answered, what was correct,
-# and chat / histogram context.
+# and chat / histogram context. On startup, the client can read the latest
+# log; if it was NOT terminated gracefully, it can reconstruct state.
 # =============================================================================
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 LOG_DIR_NAME = ".session_logs"
 LOG_SUFFIX = ".session.log"
@@ -77,6 +79,24 @@ class SessionLogger:
                 "role": role,
                 "server_url": server_url,
                 "username": username,
+            },
+        )
+
+    def log_session_end(
+        self,
+        reason: Optional[str] = None,
+        graceful: bool = True,
+    ) -> None:
+        """Call on clean shutdown (graceful=True) or explicit error cleanup.
+
+        If the process crashes or is killed and never calls this, the last
+        session log will look 'incomplete' and can be used for reconstruction.
+        """
+        self._write(
+            "session-end",
+            {
+                "reason": reason,
+                "graceful": graceful,
             },
         )
 
@@ -195,6 +215,11 @@ class SessionHistory:
     server_url: Optional[str] = None
     username: Optional[str] = None
 
+    # termination info
+    terminated: bool = False
+    terminated_gracefully: Optional[bool] = None
+    termination_reason: Optional[str] = None
+
     questions: Dict[int, QuestionHistory] = field(default_factory=dict)
     chats: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -202,6 +227,26 @@ class SessionHistory:
         if not self.questions:
             return None
         return max(self.questions.keys())
+
+    def terminated_successfully(self) -> bool:
+        """True if we have a session-end event and it was graceful."""
+        return bool(self.terminated and self.terminated_gracefully)
+
+    def unanswered_questions(self) -> List[int]:
+        """Indices of questions that were seen but have no submitted answer."""
+        return [
+            idx
+            for idx, q in self.questions.items()
+            if q.answer_submitted_index is None
+        ]
+
+    def answered_without_reveal(self) -> List[int]:
+        """Indices with a submitted answer but no correct answer received."""
+        return [
+            idx
+            for idx, q in self.questions.items()
+            if q.answer_submitted_index is not None and q.correct_index is None
+        ]
 
 
 def _ensure_question(history: SessionHistory, q_index: int) -> QuestionHistory:
@@ -260,6 +305,11 @@ def load_session_history_from_log(
                 history.server_url = payload.get("server_url")
                 history.username = payload.get("username")
 
+            elif event == "session-end":
+                history.terminated = True
+                history.terminated_gracefully = payload.get("graceful")
+                history.termination_reason = payload.get("reason")
+
             elif event == "question-received":
                 q_idx = payload.get("q_index")
                 if q_idx is None:
@@ -301,3 +351,40 @@ def load_session_history_from_log(
             # Other events can be added here later.
 
     return history
+
+
+def load_latest_history(
+    base_dir: Optional[Path] = None,
+) -> Optional[Tuple[SessionHistory, Path]]:
+    """Convenience: load the latest session history + its path.
+
+    Returns (history, path) or None if there are no logs.
+    """
+    path = get_latest_log_path(base_dir=base_dir)
+    if path is None:
+        return None
+    history = load_session_history_from_log(path=path)
+    if history is None:
+        return None
+    return history, path
+
+
+def load_latest_incomplete_history(
+    base_dir: Optional[Path] = None,
+) -> Optional[Tuple[SessionHistory, Path]]:
+    """Return the latest session history ONLY if it was not terminated successfully.
+
+    Intended usage at client startup:
+
+        result = load_latest_incomplete_history()
+        if result is not None:
+            history, path = result
+            # use `history` to reconstruct quiz state, then reconnect
+    """
+    result = load_latest_history(base_dir=base_dir)
+    if result is None:
+        return None
+    history, path = result
+    if history.terminated_successfully():
+        return None
+    return history, path
