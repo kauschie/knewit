@@ -40,8 +40,15 @@ from quiz_types import (
     create_session, get_session, delete_session
 )
 import logging
-logging.basicConfig(filename='logs/server.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-logger = logging.getLogger(__name__)
+# make sure file exists first
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+log_file = log_dir / "server.log"
+if not log_file.exists():
+    log_file.touch()
+logging.basicConfig(filename=str(log_file), level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+# use separate log from host / student uis
+logger = logging.getLogger("server_logger")
 logger.setLevel(logging.DEBUG)
 logger.debug("Logger module loaded from app.py")
 
@@ -324,15 +331,31 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
             if msg_type == "quiz.start" and conn["is_host"]:
                 if session.start_quiz():
+                    await printlog(f"[quiz] starting quiz for session={session.id}")
                     question = session.next_question()
                     if question:
+                        sq = StudentQuestion.from_question(question)
+                        sq.index = session.current_question_idx
+                        sq.total = len(session.quiz.questions)
+                        sq.timer = 10 # get from question or orchestrator later
+
                         await broadcast(session, {
                             "type": "question.next",
-                            "prompt": question.prompt,
-                            "options": question.options,
-                            "question_num": session.current_question_idx + 1,
-                            "total_questions": len(session.quiz.questions)
+                            "question": sq.to_dict()
                         })
+                    else:
+                        await broadcast(session, {
+                            "type": "quiz.finished",
+                            "leaderboard": [
+                                {"name": p.player_id, "score": p.score}
+                                for p in sorted(
+                                    session.players.values(),
+                                    key=lambda x: x.score,
+                                    reverse=True
+                                )
+                            ]
+                        })
+                    
                 else:
                     await ws.send_text(json.dumps({
                         "type": "error",
@@ -346,6 +369,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     sq = StudentQuestion.from_question(question)
                     sq.index = session.current_question_idx
                     sq.total = len(session.quiz.questions)
+                    sq.timer = 10 # get from question or orchestrator later
 
                     await broadcast(session, {
                         "type": "question.next",

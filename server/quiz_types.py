@@ -8,6 +8,11 @@ import json
 import uuid
 from pathlib import Path
 from fastapi import WebSocket
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from client.common import logger  # adjust import path if needed
+
 
 class QuizState(Enum):
     LOBBY = "lobby"
@@ -46,6 +51,7 @@ class StudentQuestion:
     options: List[str]
     index: int
     total: int
+    timer: Optional[int] = None
     
     def to_dict(self) -> dict:
         return {
@@ -53,7 +59,8 @@ class StudentQuestion:
             "prompt": self.prompt,
             "options": self.options,
             "index": self.index,
-            "total": self.total
+            "total": self.total,
+            "timer": self.timer
         }
     
     @classmethod
@@ -63,7 +70,8 @@ class StudentQuestion:
             prompt=question.prompt,
             options=question.options,
             index=0,  # default index
-            total=0   # default total
+            total=0,   # default total
+            timer=None
         )
     
     @classmethod
@@ -73,7 +81,8 @@ class StudentQuestion:
             prompt=data["prompt"],
             options=data["options"],
             index=data.get("index", 0),
-            total=data.get("total", 0)
+            total=data.get("total", 0),
+            timer=data.get("timer")
         )
 
 @dataclass
@@ -322,6 +331,7 @@ class QuizSession:
 
     def start_quiz(self) -> bool:
         """Start the quiz. Returns False if no quiz is loaded."""
+        logger.debug(f"[QuizSession] Starting quiz in session {self.id}")
         if not self.quiz or len(self.quiz.questions) == 0:
             return False
         self.state = QuizState.ACTIVE
@@ -330,6 +340,7 @@ class QuizSession:
 
     def next_question(self) -> Optional[Question]:
         """Advance to the next question. Returns None if the quiz is over."""
+        logger.debug(f"[QuizSession] Advancing to next question in session {self.id}")
         if not self.quiz:
             return None
 
@@ -355,6 +366,7 @@ class QuizSession:
 
     def _reset_current_question_state(self) -> None:
         """Reset per-question state (answers, flags, counts) for the active question."""
+        logger.debug(f"[QuizSession] Resetting state for question {self.current_question_idx} in session {self.id}")
         # Reset counts
         self.answer_counts = {0: 0, 1: 0, 2: 0, 3: 0}
 
@@ -376,6 +388,7 @@ class QuizSession:
         - no current question
         - player already answered this question
         """
+        logger.debug(f"[QuizSession] Recording answer for player {player_id} in session {self.id} with answer {answer_idx}")
         player = self.players.get(player_id)
         if not player:
             return False

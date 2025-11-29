@@ -173,7 +173,8 @@ class StudentInterface(SessionInterface):
             p = message.get("player_id", "unknown")
             screen.append_chat(p, msg)
 
-        elif msg_type == "question.next":
+        elif msg_type == "question.next" or msg_type == "quiz.start":
+            logger.debug("[StudentInterface] Received new question from server.")
             qdata = message.get("question")
             if qdata:
                 sq = StudentQuestion.from_dict(qdata)
@@ -181,9 +182,11 @@ class StudentInterface(SessionInterface):
 
         elif msg_type == "quiz.loaded":
             quiz_title = message.get("quiz_title", "Untitled Quiz")
+            num_questions = message.get("num_questions", 0)
             logger.debug(f"Quiz loaded: {quiz_title}")
-            msg = f"Quiz '{quiz_title}' loaded. Waiting for host to start..."
+            msg = f"Quiz '{quiz_title}' ({num_questions} questions) loaded. Waiting for host to start..."
             screen.append_chat("System", msg)
+            screen.student_load_quiz(quiz_title, num_questions)
 
         elif msg_type == "answer.recorded":
             # Optional: lock UI or log confirmation
@@ -372,4 +375,16 @@ class HostInterface(SessionInterface):
         await self.send({
             "type": "quiz.load",
             "quiz": quiz_data
+        })
+        
+    async def send_start_quiz(self):
+        """Send start quiz command to the server."""
+        await self.send({
+            "type": "quiz.start"
+        })
+    
+    async def send_next_question(self):
+        """Send next question command to the server."""
+        await self.send({
+            "type": "question.next"
         })

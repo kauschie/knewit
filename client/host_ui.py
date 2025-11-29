@@ -503,33 +503,35 @@ class MainScreen(Screen):
         self.hist_plot.reset_question(labels)
         # Optional: update a label like "Q 1 / N" here
         # self.quiz_preview.set_question_label(f"Q {self.round_idx} / {len(self.selected_quiz.get('questions', []))}")
+        self._send_quiz_start()
         self.begin_question(0)
         
 
     def begin_question(self, q_idx: int) -> None:
         """Switch plots/UI to the given question."""
         if not self.selected_quiz:
+            logger.debug("[HostUi] No selected quiz to begin question.")
             return
         # self.selected_quiz["questions"][q_idx]["options"]   
 
         self.round_active = True
         if self.timer:
-            self.timer.start(30)  # demo: 30 second timer
+            self.timer.start(10)  # demo: 30 second timer
         
         self.quiz_preview.set_current_question(q_idx)
         self.quiz_preview.set_show_answers(False)
-        logger.debug(f"Beginning question {q_idx}.")
+        logger.debug(f"[HostUi] Beginning question {q_idx}.")
         # logger.debug(f"Question options: {self.selected_quiz['questions'][q_idx]['options']}")
 
         
         # labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
         labels = self._get_labels_for_question(q_idx)
-        logger.debug(f"Question {q_idx} labels: {labels}")
+        logger.debug(f"[HostUi] Question {q_idx} labels: {labels}")
         self.hist_plot.reset_question(labels)
         # self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
         # Also clear any per-question timers, badges, etc.
         
-        self.simulate_responses()
+        # self.simulate_responses()
        
     def next_question(self) -> None:
         """Advance to the next question."""
@@ -549,6 +551,7 @@ class MainScreen(Screen):
             self.timer.stop()
         
         self.round_idx += 1
+        self._send_next_question()
         self.begin_question(self.round_idx - 1) 
         
     # def simulate_responses(self) -> None:
@@ -706,6 +709,16 @@ class MainScreen(Screen):
             self.chat_input.value = ""
             # self.append_chat(user=self.host_name, msg=txt)
             asyncio.create_task(self.app.session.send_chat(txt))
+            
+    def _send_quiz_start(self) -> None:
+        """Send quiz start event to server."""
+        if self.app.session and self.selected_quiz:
+            asyncio.create_task(self.app.session.send_start_quiz())
+            
+    def _send_next_question(self) -> None:
+        """Send next question event to server."""
+        if self.app.session and self.selected_quiz:
+            asyncio.create_task(self.app.session.send_next_question())
     
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
@@ -726,6 +739,7 @@ class MainScreen(Screen):
             self._send_chat_from_input()
         elif bid == "start-quiz":
             self.start_quiz()
+            
         elif bid == "next-question":
             if self.round_idx < 1: self.start_quiz()
             elif self.round_idx < len(self.selected_quiz['questions']): self.next_question()

@@ -377,11 +377,11 @@ class MainScreen(Screen):
 
     ## Public API to update the quiz question widget
 
-    def set_quiz_question(self, question: StudentQuestion, duration:int) -> None:
+    def set_quiz_question(self, question: StudentQuestion) -> None:
         if self.quiz_question_widget:
-            self.quiz_question_widget.show_question(question, start_timer=True, duration=duration)
+            self.quiz_question_widget.show_question(question, start_timer=True)
 
-    def student_load_quiz(self) -> None:
+    def student_load_quiz(self, quiz_title, num_questions) -> None:
         # check if quiz question is already going
         if self.quiz_question_widget and self.quiz_question_widget.timer.is_running():
             logger.debug("Quiz question is already running, stopping now.")
@@ -389,21 +389,29 @@ class MainScreen(Screen):
 
         self.round_idx = 0
         if self.app.quiz is not None:
-            self.quiz_question_widget._render_start_screen()
+            self.quiz_question_widget._render_start_screen(
+                f"Waiting for {num_questions} Question Quiz '{quiz_title}' to start...")
 
-    def next_question(self) -> None:
-        """Demo: advance to next question."""
-        logger.debug("Advancing to next question from MainScreen.")
-        if self.app.quiz is not None and self.quiz_question_widget:
+    def next_question(self, sq: StudentQuestion) -> None:
+        logger.debug("[Student] next_question called.")
+        if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
-            quiz_questions = self.app.quiz.questions
-            if self.round_idx + 1 < len(quiz_questions):
-                self.round_idx += 1
-                sq = StudentQuestion.from_question(quiz_questions[self.round_idx])
-                sq.index = self.round_idx
-                sq.total = len(quiz_questions)
-                self.set_quiz_question(sq)
-                return
+            self.round_idx = sq.index
+            self.set_quiz_question(sq)
+            return
+    # def next_question(self) -> None:
+    #     """Demo: advance to next question."""
+    #     logger.debug("Advancing to next question from MainScreen.")
+    #     if self.app.quiz is not None and self.quiz_question_widget:
+    #         self.quiz_question_widget.clear_question()
+    #         quiz_questions = self.app.quiz.questions
+    #         if self.round_idx + 1 < len(quiz_questions):
+    #             self.round_idx += 1
+    #             sq = StudentQuestion.from_question(quiz_questions[self.round_idx])
+    #             sq.index = self.round_idx
+    #             sq.total = len(quiz_questions)
+    #             self.set_quiz_question(sq)
+    #             return
 
     def end_question(self, correct_option: int = 1) -> None:
         # logger.debug("Ending question from MainScreen.")
@@ -612,8 +620,8 @@ class LoginScreen(Screen):
             "app": self.app,
             "session_id": self.query_one("#session-id-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-input-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
-            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": int(self.query_one("#server-inputs-input2", Input).value.strip() or "49000"),
             "username":  self.query_one("#username-inputs-input", Input).value.strip() or "johndoe123",
         }
