@@ -5,8 +5,10 @@ import sys
 import asyncio
 from random import randint
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
+from client.widgets.quiz_question_widget import QuizQuestionWidget
 from server.quiz_types import StudentQuestion
 from textual.app import App
 from client.ws_client import WSClient
@@ -171,17 +173,20 @@ class StudentInterface(SessionInterface):
             p = message.get("player_id", "unknown")
             screen.append_chat(p, msg)
 
-        elif msg_type == "question.next":
+        elif msg_type == "question.next" or msg_type == "quiz.start":
+            logger.debug("[StudentInterface] Received new question from server.")
             qdata = message.get("question")
             if qdata:
                 sq = StudentQuestion.from_dict(qdata)
-                screen.set_quiz_question(sq)
+                screen.next_question(sq)
 
         elif msg_type == "quiz.loaded":
             quiz_title = message.get("quiz_title", "Untitled Quiz")
+            num_questions = message.get("num_questions", 0)
             logger.debug(f"Quiz loaded: {quiz_title}")
-            msg = f"Quiz '{quiz_title}' loaded. Waiting for host to start..."
+            msg = f"Quiz '{quiz_title}' ({num_questions} questions) loaded. Waiting for host to start..."
             screen.append_chat("System", msg)
+            screen.student_load_quiz(quiz_title, num_questions)
 
         elif msg_type == "answer.recorded":
             # Optional: lock UI or log confirmation
@@ -189,6 +194,11 @@ class StudentInterface(SessionInterface):
 
         elif msg_type == "quiz.finished":
             screen.end_quiz()
+            
+        elif msg_type == "question.results":
+            correct_idx = message.get("correct_idx")
+            if correct_idx is not None:
+                screen.end_question(correct_idx)
 
         elif msg_type == "lobby.update":
             logger.debug("[Student Interface] Updating player list from server.")
@@ -201,8 +211,7 @@ class StudentInterface(SessionInterface):
             elif added:
                 # screen.append_chat("System", f"{added} has joined the session.")
                 screen.append_rainbow_chat("System", f"'{added}' has joined the session.")
-            screen.players = message.get("players", [])
-            screen._rebuild_leaderboard()
+            screen.update_lobby(plist)
 
         elif msg_type == "kicked":
             logger.warning("Student was kicked from session.")
@@ -238,11 +247,12 @@ class StudentInterface(SessionInterface):
             "password": self.password
         })
         
-    async def send_answer(self, index: int):
+    async def send_answer(self, index: int, elapsed: float):
         """Send an answer selection to the server."""
         await self.send({
             "type": "answer.submit",
-            "answer_idx": index,   # <-- match server
+            "answer_idx": index,
+            "elapsed": elapsed
         })
 
     async def send_chat(self, msg: str):
@@ -253,6 +263,15 @@ class StudentInterface(SessionInterface):
         })
 
 
+    async def send_answer(self, widget: QuizQuestionWidget):
+        if widget.answered_option is None:
+            return
+        payload = {
+            "type": "answer.submit",
+            "answer_idx": widget.answered_option,
+            "elapsed": widget.answered_time
+        }
+        await self.send(payload)
 
 
 @dataclass
@@ -290,6 +309,8 @@ class HostInterface(SessionInterface):
             # screen.append_chat("System", f"Session {self.session_id} created successfully.")
             return
        
+        
+       
         ############################################
         #    Process events for main screen
         ############################################
@@ -316,8 +337,30 @@ class HostInterface(SessionInterface):
             elif added:
                 # screen.append_chat("System", f"'{added}' has joined the session.")
                 screen.append_rainbow_chat("System", f"{added} has joined the session.")
-            screen.players = message.get("players", [])
-            screen._rebuild_leaderboard()
+            screen.update_lobby(plist)
+            
+        elif msg_type == "question.histogram":
+            # Server sends: {"type": "question.histogram", "histogram": [3, 1, 0, 4], ...}
+            histogram = message.get("histogram", [])
+            screen.update_answer_histogram(histogram)
+            
+        elif msg_type == "question.next":
+            logger.debug("[HostInterface] Received new question from server.")
+            if not (qdata := message.get("question")):
+                logger.debug("[HostInterface] No question data in message.")
+                
+            screen.begin_question(qdata["index"], qdata["timer"])
+        
+        elif msg_type == "question.results":
+            updated_histogram = message.get("histogram", [])
+            correct_idx = message.get("correct_idx")
+            if updated_histogram is None or correct_idx is None:
+                logger.debug("[HostInterface] Incomplete question.results data.")
+                return
+            screen.show_correct_answer(correct_idx, updated_histogram)
+                
+        elif msg_type == "quiz.finished":
+            screen.end_quiz()
         else:
             await super().on_event(message)
     
@@ -350,4 +393,22 @@ class HostInterface(SessionInterface):
         await self.send({
             "type": "quiz.load",
             "quiz": quiz_data
+        })
+        
+    async def send_start_quiz(self):
+        """Send start quiz command to the server."""
+        await self.send({
+            "type": "quiz.start"
+        })
+    
+    async def send_next_question(self):
+        """Send next question command to the server."""
+        await self.send({
+            "type": "question.next"
+        })
+    
+    async def send_end_question(self):
+        """Send end question command to the server."""
+        await self.send({
+            "type": "question.end"
         })

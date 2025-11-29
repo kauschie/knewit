@@ -276,6 +276,8 @@ class MainScreen(Screen):
         self.log_list: Log | None = None
         self.extra_cols: list[str] = []  # track dynamic round columns
         self.timer: TimeDisplay | None = None
+        self.hist_plot: AnswerHistogramPlot | None = None
+        self.pc_plot: PercentCorrectPlot | None = None
         
         # session controls
         self.session_controls_area: Horizontal | None = None
@@ -354,6 +356,9 @@ class MainScreen(Screen):
         self.nq_btn = self.query_one("#next-question", Button)
         self.end_quiz_btn = self.query_one("#end-question", Button)
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
+        self.hist_plot = self.query_one("#answers-plot", AnswerHistogramPlot)
+        self.pc_plot = self.query_one("#percent-plot", expect_type=PercentCorrectPlot)
+
         self.quiz_preview = self.query_one("#quiz-preview", QuizPreviewLog)
         # self.host_name = self.app.session.get("username", "Host") if self.app.session else "Host"
         self.host_name = self.app.session.username if self.app.session else "HostUnknown"
@@ -456,26 +461,22 @@ class MainScreen(Screen):
         self.append_chat(user="System", msg=f"Quiz loaded: [b]{self.selected_quiz.get('title','(untitled)')}[/b]")
         self.quiz_preview.set_quiz(self.selected_quiz)
         self.quiz_preview.set_show_answers(False)
-            
-        
-        
-        #2 reset round state + leaderboard columns
-        ### move this to the server
-        # self.round_idx = 0
-        # for p in self.players:
-        #     p["score"] = 0
-        #     p["rounds"] = []
-        # self._rebuild_leaderboard()
         
         #3 reset plots
         self.query_one("#percent-plot", PercentCorrectPlot).set_series([])
         labels = self._get_labels_for_question(0) or ["A", "B", "C", "D"]
 
-        self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(labels)
+        # self.query_one("#answers-plot", AnswerHistogramPlot).reset_question(labels)
+        self.hist_plot.reset_question(labels)
 
         #4 enable start quiz and next buttons
         self.toggle_buttons()
 
+    def update_lobby(self, players: list[dict]) -> None:
+        """Update the lobby player list."""
+        self.players = players
+        self._rebuild_leaderboard()
+        self._rebuild_user_controls()
 
     # ---------- Host Control Actions ----------
     
@@ -496,40 +497,33 @@ class MainScreen(Screen):
         if not self.selected_quiz:
             return
         self.append_chat(user=self.host_name, msg="Quiz started.")
-        self.round_idx = 1  # first question is index 0
-        
-        # If your quiz has options per question, set labels from question 0.
-        labels = self._get_labels_for_question(self.round_idx - 1)
-        # labels = ["A", "B", "C", "D"]  # TODO: derive from self.selected_quiz
-        self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
-        # Optional: update a label like "Q 1 / N" here
-        # self.quiz_preview.set_question_label(f"Q {self.round_idx} / {len(self.selected_quiz.get('questions', []))}")
-        self.begin_question(0)
-        
+        self._send_quiz_start()
 
-    def begin_question(self, q_idx: int) -> None:
+    def begin_question(self, q_idx: int, timer_duration: int | None = None) -> None:
+        
         """Switch plots/UI to the given question."""
         if not self.selected_quiz:
+            logger.debug("[HostUi] No selected quiz to begin question.")
             return
         # self.selected_quiz["questions"][q_idx]["options"]   
 
         self.round_active = True
         if self.timer:
-            self.timer.start(30)  # demo: 30 second timer
+            self.timer.start(timer_duration or 10)  # demo: 30 second timer
         
-        self.quiz_preview.set_current_question(q_idx)
-        self.quiz_preview.set_show_answers(False)
-        logger.debug(f"Beginning question {q_idx}.")
-        # logger.debug(f"Question options: {self.selected_quiz['questions'][q_idx]['options']}")
+        self.round_idx = q_idx + 1  # for leaderboard columns
 
+        if self.quiz_preview:
+            self.quiz_preview.set_current_question(q_idx)
+            self.quiz_preview.set_show_answers(False)
         
-        # labels = ["A", "B", "C", "D"]  # TODO: derive from quiz[q_idx]
+        logger.debug(f"[HostUi] Beginning question {q_idx}.")
+        
+        # Reset answer histogram
         labels = self._get_labels_for_question(q_idx)
-        logger.debug(f"Question {q_idx} labels: {labels}")
-        self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
-        # Also clear any per-question timers, badges, etc.
-        
-        self.simulate_responses()
+        logger.debug(f"[HostUi] Question {q_idx} labels: {labels}")
+        if self.hist_plot:
+            self.hist_plot.reset_question(labels)
        
     def next_question(self) -> None:
         """Advance to the next question."""
@@ -548,24 +542,7 @@ class MainScreen(Screen):
             self.end_question()
             self.timer.stop()
         
-        self.round_idx += 1
-        self.begin_question(self.round_idx - 1) 
-        
-    def simulate_responses(self) -> None:
-        """Demo method to simulate random answers arriving over time."""
-        async def _sim():
-            for _ in range(len(self.players)):
-                await asyncio.sleep(random.uniform(0.1, 0.5))
-                choice = random.randint(0, 3)
-                self.tally_answer(choice)
-        asyncio.create_task(_sim())     
-        
-
-    def tally_answer(self, choice_index: int) -> None:
-        """Increment histogram as answers arrive in real time."""
-        answers_plot = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot)
-        if 0 <= choice_index < len(answers_plot.counts):
-            answers_plot.bump(choice_index)
+        self._send_next_question()
 
     def end_question(self) -> None:
         """Close the question: freeze histogram and append % correct."""
@@ -573,28 +550,26 @@ class MainScreen(Screen):
         
         if not self.selected_quiz:
             return
-        if self.round_idx < 1:
-            return  # no question in progress
-        if not self.round_active:
-            return  # question already ended
-        self.timer.stop()
+        
+        # send end question to server
+        self._send_end_question()
+    
+    def show_correct_answer(self, correct_idx, updated_histogram) -> None:
+        """ Called when question.results received from server. """
         self.round_active = False
-        # update leaderboard
-        for p in self.players:
-            delta = random.randint(0, 10)
-            p["score"] = p.get("score", 0) + delta
-            p.setdefault("rounds", []).append(delta)
-        self._rebuild_leaderboard()
+        if self.timer:
+            self.timer.stop()
+            
+        if self.quiz_preview:
+            self.quiz_preview.set_show_answers(True)
         
-        # update percent correct plot
-        percent_correct = self.calculate_percent_correct()
-        # highlight correct answer in preview
-        logger.debug(f"Ending question. Percent correct: {percent_correct}")
-        self.quiz_preview.set_show_answers(True)
-        
-        pc_plot = self.query_one("#percent-plot", expect_type=PercentCorrectPlot)
-        pc_plot.set_series([*pc_plot.percents, percent_correct])
-        # Update leaderboard totals if you score per question here.
+        self.update_answer_histogram(updated_histogram)
+        self.update_percent_correct(correct_idx, updated_histogram)
+    
+    def update_percent_correct(self, correct_idx, updated_histogram) -> None:
+        percent_correct = self.calculate_percent_correct(correct_idx, updated_histogram)
+        logger.debug(f"[Host] show_correct_answer(). Percent correct: {percent_correct}")
+        self.pc_plot.set_series([*self.pc_plot.percents, percent_correct])
     
     def end_quiz(self) -> None:
         """Wrap up the quiz."""
@@ -631,25 +606,36 @@ class MainScreen(Screen):
     def action_end_question(self) -> None:
         self.end_question()
         
-    def calculate_percent_correct(self) -> float:
+    def action_end_quiz(self) -> None:
+        self.end_quiz()
+        
+    def action_send_chat(self) -> None:
+        if self.chat_input and self.chat_input.has_focus:
+            self._send_chat_from_input()
+    
+    # update histogram -> should be moved to widget as watcher?
+    def update_answer_histogram(self, bins: List[int]) -> None:
+        """Update the answer histogram with new bin counts."""
+        if self.hist_plot:
+            self.hist_plot.counts = tuple(bins)
+    
+    # calculate percent correct -> move to server eventually to keep clients thin
+    def calculate_percent_correct(self, correct_idx, counts) -> float:
         """Demo method to calculate a random percent correct."""
         if not self.selected_quiz:
             return 0.0
         
-        correct_index = self.quiz_preview.get_correct_answer_index()
-        if correct_index is None:
-            return 0.0
-        responses = self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).counts
-        sum_responses = sum(responses)
+        sum_responses = sum(counts)
         if sum_responses == 0:
             return 0.0
-        num_correct = responses[correct_index]
-        percent_correct = (num_correct / sum_responses) * 100.0
-        return percent_correct        
+        
+        if 0 <= correct_idx < len(counts):
+            correct_count = counts[correct_idx]
+            return (correct_count / sum_responses) * 100.0
+        
+        return 0.0        
     
-    def action_end_quiz(self) -> None:
-        self.end_quiz()
-
+    
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":
             priv = "sys"
@@ -660,35 +646,16 @@ class MainScreen(Screen):
         else:
             logger.warning(f"[Host] Chat log not available. Message from {user}: {msg}")
   
+    def show_system_message(self, text: str) -> None:
+        self.chat_log.append_chat("System", text)
+  
     def append_rainbow_chat(self, user: str, msg: str) -> None:
         if self.chat_log:
             self.chat_log.append_rainbow_chat(user, msg)
         else:
             logger.warning(f"[Host] Chat log not available. Message from {user}: {msg}")
 
-    def action_send_chat(self) -> None:
-        if self.chat_input and self.chat_input.has_focus:
-            self._send_chat_from_input()
 
-    def action_demo_chat(self) -> None:
-        list_of_random_msgs = [
-            "Hello everyone!",
-            "How's it going?",
-            "This quiz is fun!",
-            "I think I know the answer.",
-            "Can we have a break?",
-            "What's the next question?",
-            "Good luck to all!",
-            "I'm ready for the challenge.",
-            "That was a tough one.",
-            "Can't wait for the results!"
-        ]
-        
-        player_name_list = [p["player_id"] for p in self.players]
-        player_name_list.append(self.host_name if self.host_name else "Host")
-        name = random.choice(player_name_list) if player_name_list else "Player1"
-        line = random.choice(list_of_random_msgs)
-        self.append_chat(user=name, msg=line)
 
     def on_input_submitted(self, e: Input.Submitted) -> None:
         if e.input.id == "chat-input":
@@ -699,6 +666,21 @@ class MainScreen(Screen):
             self.chat_input.value = ""
             # self.append_chat(user=self.host_name, msg=txt)
             asyncio.create_task(self.app.session.send_chat(txt))
+            
+    def _send_quiz_start(self) -> None:
+        """Send quiz start event to server."""
+        if self.app.session and self.selected_quiz:
+            asyncio.create_task(self.app.session.send_start_quiz())
+            
+    def _send_next_question(self) -> None:
+        """Send next question event to server."""
+        if self.app.session and self.selected_quiz:
+            asyncio.create_task(self.app.session.send_next_question())
+            
+    def _send_end_question(self) -> None:
+        """Send end question event to server."""
+        if self.app.session and self.selected_quiz:
+            asyncio.create_task(self.app.session.send_end_question())
     
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
@@ -719,6 +701,7 @@ class MainScreen(Screen):
             self._send_chat_from_input()
         elif bid == "start-quiz":
             self.start_quiz()
+            
         elif bid == "next-question":
             if self.round_idx < 1: self.start_quiz()
             elif self.round_idx < len(self.selected_quiz['questions']): self.next_question()
