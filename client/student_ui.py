@@ -384,57 +384,41 @@ class MainScreen(Screen):
     def student_load_quiz(self, quiz_title, num_questions) -> None:
         # check if quiz question is already going
         if self.quiz_question_widget and self.quiz_question_widget.timer.is_running():
-            logger.debug("Quiz question is already running, stopping now.")
+            logger.debug("[Student UI] Quiz question is already running, stopping now.")
             self.quiz_question_widget.end_question()
 
         self.round_idx = 0
-        if self.app.quiz is not None:
+        if self.quiz_question_widget is not None:
             self.quiz_question_widget._render_start_screen(
                 f"Waiting for {num_questions} Question Quiz '{quiz_title}' to start...")
+        else:
+            logger.warning("[Student UI] Quiz question widget not available to load quiz.")
 
     def next_question(self, sq: StudentQuestion) -> None:
-        logger.debug("[Student] next_question called.")
+        logger.debug("[Student UI] next_question called.")
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
             self.round_idx = sq.index
             self.set_quiz_question(sq)
-            return
-    # def next_question(self) -> None:
-    #     """Demo: advance to next question."""
-    #     logger.debug("Advancing to next question from MainScreen.")
-    #     if self.app.quiz is not None and self.quiz_question_widget:
-    #         self.quiz_question_widget.clear_question()
-    #         quiz_questions = self.app.quiz.questions
-    #         if self.round_idx + 1 < len(quiz_questions):
-    #             self.round_idx += 1
-    #             sq = StudentQuestion.from_question(quiz_questions[self.round_idx])
-    #             sq.index = self.round_idx
-    #             sq.total = len(quiz_questions)
-    #             self.set_quiz_question(sq)
-    #             return
+        else:
+            logger.warning("[Student UI] Quiz question widget not available to start next question.")
 
-    def end_question(self, correct_option: int = 1) -> None:
+    def end_question(self, correct_option: int) -> None:
         # logger.debug("Ending question from MainScreen.")
         # shoudl take in the correct answer index and display it
         # all timing logic will be handled on submission or via orchestrator recording non-submitted answers
-        
-        
-        if self.quiz_question_widget and self.app.quiz is not None:
+        if self.quiz_question_widget:
             self.quiz_question_widget.end_question()
-            # user_answer_time = self.quiz_question_widget.answered_time
-            # logger.debug(f"User answered in: {user_answer_time} seconds.")
-            # logger.debug("Question ended.")
-            # logger.debug(f"User answer was: " + str(self.quiz_question_widget.answered_option))
-            # logger.debug(f"Time taken to answer: " + str(user_answer_time) + " seconds.")
-            # correct_option = self.app.quiz.questions[self.round_idx].correct_idx # get correct answer index from demo quiz
             self.quiz_question_widget.show_correct(correct_option)
+        else:
+            logger.warning("[Student UI] Quiz question widget not available to end question.")
     
     def end_quiz(self) -> None:
         # logger.debug("Ending quiz from MainScreen.")
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
             self.round_idx = 0
-            logger.debug("Quiz ended.")
+            logger.debug("[Student UI] Quiz ended.")
             
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":
@@ -445,13 +429,13 @@ class MainScreen(Screen):
         if self.chat_log:
             self.chat_log.append_chat(user, msg, priv)
         else:
-            logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
+            logger.warning(f"[Student UI] Chat log not available. Message from {user}: {msg}")
     
     def append_rainbow_chat(self, user: str, msg: str) -> None:
         if self.chat_log:
             self.chat_log.append_rainbow_chat(user, msg)
         else:
-            logger.warning(f"[Student] Chat log not available. Message from {user}: {msg}")
+            logger.warning(f"[Student UI] Chat log not available. Message from {user}: {msg}")
 
     # def action_start_quiz(self) -> None:
     #     self.student_load_quiz()
@@ -550,9 +534,9 @@ class LoginScreen(Screen):
     async def action_attempt_login(self) -> None:
         # gather input values
         vals = self._student_get_values()
-        logger.debug("Attempting login with values:")
+        logger.debug("[Student Login UI] Attempting login with values:")
         for k,v in vals.items():
-            logger.debug(f"Login input: {k} = {v}")
+            logger.debug(f"[Student Login UI] Login input: {k} = {v}")
         
         # perform validation
         ok, msg = _student_validate(vals)
@@ -566,10 +550,10 @@ class LoginScreen(Screen):
         if not success:
             self.title = "Failed to connect to server."
             self._show_error(msg)
-            logger.debug(f"Login failed, staying on login screen: {msg}")
+            logger.debug(f"[Student Login UI] Login failed, staying on login screen: {msg}")
             return
         if success:
-            logger.debug("join request sent, waiting for joined message...")
+            logger.debug("[Student Login UI] join request sent, waiting for joined message...")
             self.title = "Connected, waiting to join session..."
 
     async def _connect_to_server(self, vals: dict) -> tuple[bool, str]:
@@ -580,38 +564,38 @@ class LoginScreen(Screen):
         if self.app.session is None:
             self.app.session = StudentInterface.from_dict(vals.copy())
         else:
-            logger.debug("Reusing existing session connection.")
+            logger.debug("[Student Login UI] Reusing existing session connection.")
             # check if session id or username changed
             if (self.app.session.session_id != vals["session_id"] or
                 self.app.session.username != vals["username"]):
                 
-                logger.debug("Session ID or username changed, disconnecting and updating session info.")
+                logger.debug("[Student Login UI] Session ID or username changed, disconnecting and updating session info.")
                 await self.app.session.stop()
                 
                 self.app.session = StudentInterface.from_dict(vals.copy())
             else:
-                logger.debug("Session ID and username unchanged, reusing existing session.")
+                logger.debug("[Student Login UI] Session ID and username unchanged, reusing existing session.")
                 self.app.session.set_from_dict(vals.copy())
         
         try:
             if not await self.app.session.start():
                 return False, "Failed to establish connection with server."
         except TimeoutError as e:
-            logger.error(f"Timeout while connecting to server: {e}")
+            logger.error(f"[Student Login UI] Timeout while connecting to server: {e}")
             return False, "Connection timed out."
 
-        logger.debug("[Student LoginScreen] Connection established, sending join message...")
+        logger.debug("[Student Login UI] Connection established, sending join message...")
         await self.app.session.send_join()
         return True, ""
         
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         
         if event.button.id == "username-inputs-button":
-            logger.debug("Login button pressed.")
+            logger.debug("[Student Login UI] Login button pressed.")
             await self.action_attempt_login()        
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.action_attempt_login()
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        await self.action_attempt_login()
 
     # --- helpers ---
     def _student_get_values(self) -> dict:
@@ -683,8 +667,8 @@ class StudentUIApp(App):
         self.theme = THEME
         
         # sample quiz, remove after debugging UI
-        self.quiz = Quiz.load_from_file("quizzes/abcd1234.json")
-        logger.debug(f"Loaded sample quiz: {self.quiz}")
+        # self.quiz = Quiz.load_from_file("quizzes/abcd1234.json")
+        # logger.debug(f"[Student Login UI] Loaded sample quiz: {self.quiz}")
         
         self.push_screen("login")
         # self.switch_mode("main")

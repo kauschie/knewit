@@ -214,6 +214,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             # ------------------------------------------------------
             # STUDENT JOINS SESSION
             # ------------------------------------------------------
+            
             if msg_type == "session.join":
                 pw = data.get("password")
 
@@ -388,6 +389,27 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         ]
                     })
                 continue
+
+            if msg_type == "question.end" and conn["is_host"]:
+                # Retrieve the current question to verify the correct answer
+                q = session.get_current_question()
+                if not q:
+                    await ws.send_text(json.dumps({
+                        "type": "error",
+                        "message": "No active question to end"
+                    }))
+                    await printlog(f"[quiz] no active question to end for session={session.id}")
+                    continue
+                
+                correct_idx = q.correct_idx
+                final_counts = session.get_answer_counts()
+                
+                
+                await broadcast(session, {
+                    "type": "question.results",
+                    "correct_idx": correct_idx,
+                    "histogram": final_counts
+                })
 
             if msg_type == "player.kick" and conn["is_host"]:
                 kid = data.get("player_id")

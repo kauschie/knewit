@@ -178,7 +178,7 @@ class StudentInterface(SessionInterface):
             qdata = message.get("question")
             if qdata:
                 sq = StudentQuestion.from_dict(qdata)
-                screen.set_quiz_question(sq)
+                screen.next_question(sq)
 
         elif msg_type == "quiz.loaded":
             quiz_title = message.get("quiz_title", "Untitled Quiz")
@@ -194,6 +194,11 @@ class StudentInterface(SessionInterface):
 
         elif msg_type == "quiz.finished":
             screen.end_quiz()
+            
+        elif msg_type == "question.results":
+            correct_idx = message.get("correct_idx")
+            if correct_idx is not None:
+                screen.end_question(correct_idx)
 
         elif msg_type == "lobby.update":
             logger.debug("[Student Interface] Updating player list from server.")
@@ -345,7 +350,15 @@ class HostInterface(SessionInterface):
                 logger.debug("[HostInterface] No question data in message.")
                 
             screen.begin_question(qdata["index"], qdata["timer"])
-            
+        
+        elif msg_type == "question.results":
+            updated_histogram = message.get("histogram", [])
+            correct_idx = message.get("correct_idx")
+            if updated_histogram is None or correct_idx is None:
+                logger.debug("[HostInterface] Incomplete question.results data.")
+                return
+            screen.show_correct_answer(correct_idx, updated_histogram)
+                
         elif msg_type == "quiz.finished":
             screen.end_quiz()
         else:
@@ -392,4 +405,10 @@ class HostInterface(SessionInterface):
         """Send next question command to the server."""
         await self.send({
             "type": "question.next"
+        })
+    
+    async def send_end_question(self):
+        """Send end question command to the server."""
+        await self.send({
+            "type": "question.end"
         })
