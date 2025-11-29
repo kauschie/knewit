@@ -334,15 +334,20 @@ class HostInterface(SessionInterface):
                 screen.append_rainbow_chat("System", f"{added} has joined the session.")
             screen.update_lobby(plist)
             
-        elif msg_type == "histogram.update":
-            bins = message.get("bins", [])
-            screen.update_answer_histogram(bins)
-            
-            # look into difference between question.histogram and histogram.update
         elif msg_type == "question.histogram":
-            histogram = message.get("histogram", {})
-            screen.update_question_histogram(histogram)
-        
+            # Server sends: {"type": "question.histogram", "histogram": [3, 1, 0, 4], ...}
+            histogram = message.get("histogram", [])
+            screen.update_answer_histogram(histogram)
+            
+        elif msg_type == "question.next":
+            logger.debug("[HostInterface] Received new question from server.")
+            if not (qdata := message.get("question")):
+                logger.debug("[HostInterface] No question data in message.")
+                
+            screen.begin_question(qdata["index"], qdata["timer"])
+            
+        elif msg_type == "quiz.finished":
+            screen.end_quiz()
         else:
             await super().on_event(message)
     
