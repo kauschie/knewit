@@ -44,6 +44,9 @@ from basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, Pla
 from utils import _student_validate
 from chat import MarkdownChat, RichLogChat
 
+from pathlib import Path
+from session_log import SessionLogger, load_latest_incomplete_history
+
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
 
@@ -435,7 +438,25 @@ class MainScreen(Screen):
             self.quiz_preview.set_quiz(self.selected_quiz)
             self.quiz_preview.set_show_answers(False)
             
-        
+        # logs the first question if received
+        app_logger = getattr(self.app, "session_logger", None)
+        if app_logger and self.selected_quiz:
+            questions = self.selected_quiz.get("questions", [])
+            if questions:
+                q0 = questions[0]
+                q_id = q0.get("id")
+                title = q0.get("title", "")
+                text = q0.get("text", "")
+                options = [opt.get("text", "") if isinstance(opt, dict) else str(opt)
+                           for opt in q0.get("options", [])]
+                app_logger.log_question_received(
+                    q_index=0,
+                    question_id=q_id,
+                    title=title,
+                    text=text,
+                    options=options,
+                )
+
         #2 reset round state + leaderboard columns
         self.round_idx = 0
         for p in self.players:
@@ -505,6 +526,24 @@ class MainScreen(Screen):
         self.query_one("#answers-plot", expect_type=AnswerHistogramPlot).reset_question(labels)
         # Also clear any per-question timers, badges, etc.
         
+        # log question-received
+        app_logger = getattr(self.app, "session_logger", None)
+        if app_logger and self.selected_quiz:
+            questions = self.selected_quiz.get("questions", [])
+            if 0 <= q_idx < len(questions):
+                q = questions[q_idx]
+                q_id = q.get("id")
+                title = q.get("title", "")
+                text = q.get("text", "")
+                options = [opt.get("text", "") if isinstance(opt, dict) else str(opt)
+                           for opt in q.get("options", [])]
+                app_logger.log_question_received(
+                    q_index=q_idx,
+                    question_id=q_id,
+                    title=title,
+                    text=text,
+                    options=options,
+                ) 
         self.simulate_responses()
        
     def next_question(self) -> None:
@@ -543,6 +582,15 @@ class MainScreen(Screen):
         if 0 <= choice_index < len(answers_plot.counts):
             answers_plot.bump(choice_index)
 
+            # log histogram-updated
+            app_logger = getattr(self.app, "session_logger", None)
+            if app_logger:
+                current_q_index = max(self.round_idx - 1, 0)
+                app_logger.log_histogram_updated(
+                    q_index=current_q_index,
+                    counts=list(answers_plot.counts),
+                )
+
     def end_question(self) -> None:
         """Close the question: freeze histogram and append % correct."""
         logger.debug(f"Ending question. self.round_active = {self.round_active}")
@@ -567,7 +615,21 @@ class MainScreen(Screen):
         # highlight correct answer in preview
         logger.debug(f"Ending question. Percent correct: {percent_correct}")
         self.quiz_preview.set_show_answers(True)
-        
+
+        # log answer-received
+        app_logger = getattr(self.app, "session_logger", None)
+        if app_logger and self.selected_quiz:
+            q_idx = self.round_idx - 1
+            correct_idx = self.quiz_preview.get_correct_answer_index()
+            labels = self._get_labels_for_question(q_idx)
+            if correct_idx is not None and 0 <= correct_idx < len(labels):
+                correct_value = labels[correct_idx]
+                app_logger.log_answer_received(
+                    q_index=q_idx,
+                    correct_index=correct_idx,
+                    correct_value=correct_value,
+                )
+
         pc_plot = self.query_one("#percent-plot", expect_type=PercentCorrectPlot)
         pc_plot.set_series([*pc_plot.percents, percent_correct])
         # Update leaderboard totals if you score per question here.
@@ -626,6 +688,20 @@ class MainScreen(Screen):
             priv = "sys"
         elif user == self.host_name:
             priv = "host"
+
+        # log chat
+        app_logger = getattr(self.app, "session_logger", None)
+        if app_logger:
+            # If it's from "us" (host in this playground), treat as submitted
+            if user == self.host_name:
+                app_logger.log_chat_submitted(msg)
+            else:
+                app_logger.log_chat_received(
+                    from_user=user,
+                    msg=msg,
+                    is_host=(user == "Server" or user == self.host_name),
+                )
+
         if self.chat_log:
             self.chat_log.append_chat(user, msg, priv)
             # self.chat_log.refresh()
@@ -777,6 +853,27 @@ class LoginScreen(Screen):
         if not ok:
             self._show_error(msg)
             return
+
+
+        # the following is to log the session's information needed to know how to reconnect
+        session_id = vals["session_id"]
+        username   = vals["username"]
+        server_ip  = vals["server_ip"]
+        server_port = vals["server_port"]
+
+        server_url = f"ws://{server_ip}:{server_port}/ws?session_id={session_id}&player_id={username}"
+
+        base_dir = Path.cwd()
+        logger_obj = SessionLogger(base_dir=base_dir)
+        logger_obj.log_session_start(
+            session_id=session_id,
+            client_id=username,
+            role="host", # this is because the session handshake is authorized by the host
+            server_url=server_url,
+            username=username,
+        )
+        self.app.session_logger = logger_obj
+
         self.app.login_info = vals.copy()  # store for later use in MainScreen
         self.query_one(".error-message").add_class("hidden")
         if not self._connect_to_server(vals):
@@ -852,6 +949,8 @@ class HostUIPlayground(App):
         self.players: List[dict] = []
         self.player_list_container: VerticalScroll | None = None
         self.login_info: dict = {}
+        self.session_logger: SessionLogger | None = None  # this is to initialize the session logger
+        self.resume_history = None     # a flag to know whether we had a successful termination of a session or to rebuild one
 
 
     # Small API points to be used later when wiring event handlers
@@ -876,6 +975,17 @@ class HostUIPlayground(App):
         self.theme = THEME if self.theme != THEME else "textual-dark"
 
     async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
+        
+        # the following is to look for a broken log file to see if the last session 
+        # ended peacefully
+        result = load_latest_incomplete_history(base_dir=Path.cwd())
+        if result is not None:
+            history, path = result
+            self.resume_history = history
+            # You can pre-fill login fields or directly reconnect with
+            # history.session_id, history.username, etc.
+            logger.debug(f"Found incomplete session log at {path}")
+        
         # seed some players for the initial view
         self.players = [
             {"player_id": "p1001", "name": "mike"},
@@ -886,6 +996,13 @@ class HostUIPlayground(App):
         self.theme = THEME
         self.switch_mode("login")
         # self.switch_mode("main")
+    
+    async def on_shutdown(self, event: events.Shutdown) -> None:  # type: ignore[override]
+        if self.session_logger:
+            self.session_logger.log_session_end(
+                reason="normal-exit",
+                graceful=True,
+            )
 
 if __name__ == "__main__":
     HostUIPlayground().run()

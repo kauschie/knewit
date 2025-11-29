@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-LOG_DIR_NAME = ".session_logs"
+LOG_DIR_NAME = "session_logs"
 LOG_SUFFIX = ".session.log"
 
 _EVENT_LINE_RE = re.compile(r"^\[(?P<event>[^\]]+)\]\s+(?P<payload>{.*})$")
