@@ -53,8 +53,9 @@ class QuizQuestionWidget(Widget):
                 wrap=True,
                 markup=True,
                 highlight=False,
+                min_width=1,
             )
-            log.virtual_size = lambda: (log.size.width, len(log.lines) + 5)
+            # log.virtual_size = lambda: (log.size.width, len(log.lines) + 5)
             yield log
 
             # Bottom row: answer buttons
@@ -231,7 +232,7 @@ class QuizQuestionWidget(Widget):
         """Render a start screen (before any question is shown)."""
         log = self.log
         log.clear()
-        t_msg = Text(msg, justify="center", overflow="fold", no_wrap=False)
+        t_msg = Text(msg, justify="left", overflow="fold", no_wrap=False)
         theme_vars = self.app.get_css_variables()
         accent_color = theme_vars.get("accent", "pink")
         t_msg.stylize(f"bold underline {accent_color}")
@@ -369,6 +370,7 @@ class QuizQuestionApp(App):
         background: $background;
         align: center bottom;
         outline: round $accent;
+        min-width: 5;
     }
 
     #timer-widget {
@@ -377,21 +379,23 @@ class QuizQuestionApp(App):
         layout: grid;
         grid-size: 2;
         grid-gutter: 1;
-        grid-columns: 1fr 1fr;
+        # grid-columns: 1fr 1fr;
+        grid-columns: auto auto;
+        align: center middle;
         # background: $panel;
     }
 
     #timer-label {
         height: 100%;
         column-span: 1;
-        content-align: right top;
+        content-align: right middle;
         # background: blue;
     }
 
     #timer-display {
         height: 100%;
         column-span: 1;
-        content-align: left top;
+        content-align: left middle;
         # background: red;
     }
 
@@ -414,7 +418,8 @@ class QuizQuestionApp(App):
                 ("t", "stop_timer", "Stop Timer"),
                 ("r", "reset_timer", "Reset Timer"),
                 ("e", "resume_timer", "Resume Timer"),
-                ("c", "check_answer", "Check Answer")
+                ("c", "check_answer", "Check Answer"),
+                ("x", "start_screen", "Start Screen"),
                ]
 
     def compose(self) -> ComposeResult:
@@ -449,6 +454,12 @@ class QuizQuestionApp(App):
     def action_resume_timer(self) -> None:
         self.widget.timer.resume()
         logger.debug("Timer resumed.")
+        
+    def action_start_screen(self) -> None:
+        quiz_name = "Sample Quiz"
+        num_qs = 5
+        self.widget._render_start_screen(
+                f"Waiting for {num_qs} Question Quiz '{quiz_name}' to start... Waiting for {num_qs} Question Quiz '{quiz_name}' to start... Waiting for {num_qs} Question Quiz '{quiz_name}' to start... Waiting for {num_qs} Question Quiz '{quiz_name}' to start...")
 
     def action_check_answer(self) -> None:
         self.widget.show_correct(correct_idx=1)  # assume correct answer is index 1 for testing
