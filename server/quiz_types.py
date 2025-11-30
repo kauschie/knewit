@@ -372,9 +372,16 @@ class QuizSession:
         if not q:
             return
 
-        bucket = self.answer_log.get(self.current_question_idx, {})
+        current_idx = self.current_question_idx
+        
+        bucket = self.answer_log.get(current_idx, {})
         
         for pid, player in self.players.items():
+            
+            # Ensure round_scores list padds unanswered questions with 0
+            while(len(player.round_scores) < current_idx):
+                player.round_scores.append(0)
+            
             # Determine points earned for this specific question
             points = 0
             if pid in bucket:

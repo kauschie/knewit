@@ -406,6 +406,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                 
                 # finalize scoring history
                 session.close_question_scoring()
+                
                 await printlog(f"[quiz] ended question {session.current_question_idx} for session={session.id}, correct_idx={correct_idx}, final_counts={final_counts}")
                 
                 # broadcast results
