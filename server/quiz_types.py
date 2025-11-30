@@ -329,6 +329,7 @@ class QuizSession:
         for player in self.players.values():
             player.score = 0
             player.answered_current = False
+            player.round_scores = []
 
     def start_quiz(self) -> bool:
         """Start the quiz. Returns False if no quiz is loaded."""
@@ -377,6 +378,12 @@ class QuizSession:
         bucket = self.answer_log.get(current_idx, {})
         
         for pid, player in self.players.items():
+            
+            # If we already have a score for this question index, skip it.
+            # round_scores should have length == current_idx after this update.
+            # If it's already > current_idx, we've already scored this round.
+            if len(player.round_scores) > current_idx:
+                continue
             
             # Ensure round_scores list padds unanswered questions with 0
             while(len(player.round_scores) < current_idx):
