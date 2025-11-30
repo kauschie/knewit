@@ -82,7 +82,28 @@ class SessionInterface:
 
         return connected
 
-
+    async def reset_to_login(self, error_msg: str | None = None):
+        """Disconnect WS and switch app to login screen."""
+        await self.stop()
+        self.is_connected = False
+        
+        # We need to schedule the screen switch on the main thread
+        # accessing the app directly is usually thread-safe in Textual for screen switches
+        if self.app:
+            # Clear any session state if needed
+            if error_msg:
+                # You might want to pass this message to the login screen to display it
+                logger.info(f"Resetting to login. Reason: {error_msg}")
+            
+            # Switch to login
+            await self.app.switch_mode("login") 
+            
+            # Optional: Display error on login screen
+            if error_msg:
+                login_screen = self.app.get_screen("login")
+                if hasattr(login_screen, "_show_error"):
+                    login_screen._show_error(error_msg)
+                    
     async def send(self, payload: dict):
         if not self.ws:
             logger.warning("Tried to send but WSClient is None")
@@ -218,13 +239,12 @@ class StudentInterface(SessionInterface):
 
         elif msg_type == "kicked":
             logger.warning("Student was kicked from session.")
-            # TODO: show modal or redirect to login
-            screen.append_chat("System", "You were removed from the session.")
+            await self.reset_to_login(error_msg="You have been kicked from the session by the host.")   
 
         elif msg_type == "session.closed":
             logger.info("Session closed by host.")
-            # TODO: show modal or redirect to login
-            screen.append_chat("System", "Session has ended.")
+            reason = message.get("reason", "Session closed by host.")
+            await self.reset_to_login(error_msg=reason)
 
         elif msg_type == "error":
             logger.error(f"Server error: {message.get('detail')}")
@@ -429,3 +449,6 @@ class HostInterface(SessionInterface):
             "type": "player.kick",
             "player_id": player_id
         })
+        
+    # async def logout(self):
+    #     await self.reset_to_login(error_msg="Logged out.")

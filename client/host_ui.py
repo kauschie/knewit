@@ -22,6 +22,7 @@ methods (update_players, set_quiz_preview) you can later call from
 from __future__ import annotations
 from typing import List
 import secrets
+import logging
 import random
 import asyncio
 import sys
@@ -50,8 +51,6 @@ from client.widgets.quiz_creator import QuizCreator
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
-
-logger.debug("host_ui.py starting...")
 
 class MainScreen(Screen):
     """Host main screen."""
@@ -1097,4 +1096,25 @@ class HostUIApp(App):
     #         await self.session.stop()
 
 if __name__ == "__main__":
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    # 1. Set Root logger to INFO. 
+    # This automatically silences DEBUG noise from Textual, Websockets, Asyncio, etc.
+    logging.basicConfig(
+        filename=log_dir / 'host.log',  # (or student.log)
+        level=logging.INFO,             # <--- THE CHANGE
+        format='%(asctime)s %(levelname)s [HOST] %(message)s',
+        filemode='w',
+        force=True
+    )
+    
+    # 2. Explicitly enable DEBUG for YOUR logger only
+    # Since common.py defines logger = logging.getLogger("knewit"), we enable that.
+    logging.getLogger("knewit").setLevel(logging.DEBUG)
+    
+    # If host_ui.py or other local modules use __name__, enable them too if needed
+    # logging.getLogger("client").setLevel(logging.DEBUG) 
+
+    logging.info("Host UI starting up...")
     HostUIApp().run()

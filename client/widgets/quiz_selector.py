@@ -8,11 +8,18 @@ from textual.containers import Vertical, ScrollableContainer, Grid
 from textual.reactive import reactive
 import logging
 import json
+import sys
+from pathlib import Path
+# Add server directory to path so we can import quiz_types
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+from client.common import logger
 
 QUIZ_DIR = Path(__file__).parent.parent.parent / "quizzes"
 
-logging.basicConfig(filename='logs/quiz_selector.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-logger = logging.getLogger(__name__)
+# logging.basicConfig(filename='logs/quiz_selector.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+# logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.debug("QuizSelector module loaded.")
 
