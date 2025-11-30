@@ -107,6 +107,7 @@ class MainScreen(Screen):
     .two-grid {
         grid-size: 2;
         grid-columns: 1fr 1fr;
+        grid-gutter: 1;
         # margin: 0 3 0 3;
         # grid-gutter: 0 3;
     }
@@ -114,6 +115,7 @@ class MainScreen(Screen):
     .three-grid {
         grid-size: 3;
         grid-columns: 1fr 1fr 1fr;
+        grid-gutter: 1;
         # grid-gutter: 0 2;
         # margin: 0 2 0 2;
     }
@@ -123,8 +125,35 @@ class MainScreen(Screen):
         width: 100%;
         height: 100%;
         content-align: center middle;
-        outline: round $accent;
+        # outline: round $accent;
         min-height: 3;
+    }
+    
+    #create-quiz {
+        outline: round $accent;
+        # color: $accent;
+    }
+    
+    #load-quiz {
+        outline: round $accent;
+        # color: $accent;
+    }
+    
+    #start-quiz {
+        outline: round $accent;
+        color: $success;
+    }
+    #next-question {
+        outline: round $accent;
+        color: $primary;
+    }
+    #end-question {
+        outline: round $accent;
+        color: $warning;
+    }
+    #stop-quiz {
+        outline: round $accent;
+        color: $error;
     }
 
     #timer-widget {
@@ -243,7 +272,7 @@ class MainScreen(Screen):
     #quiz-preview-container {
         width: 100%;
         height: 4fr;
-        border: solid pink;
+        border: solid $accent;
         padding: 1;
     }
     
@@ -256,7 +285,7 @@ class MainScreen(Screen):
         ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
         ("enter", "send_chat", "Send chat input"),
         ("e", "end_question", "End question"),  # demo: end question
-        ("s", "end_quiz", "End quiz"),  # demo: end quiz
+        ("s", "stop_quiz", "Stop quiz"),  # demo: end quiz
     ]
 
     def __init__(self) -> None:
@@ -285,7 +314,8 @@ class MainScreen(Screen):
         self.load_quiz_btn: Button | None = None
         self.start_btn: Button | None = None
         self.nq_btn: Button | None = None
-        self.end_quiz_btn: Button | None = None
+        self.stop_quiz_btn: Button | None = None
+        self.end_question_btn: Button | None = None
         
         # quiz refs
         self.selected_quiz: dict | None = None
@@ -308,12 +338,22 @@ class MainScreen(Screen):
                     yield TimeDisplay(id="timer-display")
                 with Vertical(id="quiz-preview-container"):
                     yield QuizPreviewLog(id="quiz-preview")
+                    
                 with Horizontal(id="session-controls-area", classes="two-grid"):
+                    # state1: Lobby
                     yield Button("Create Quiz", id="create-quiz")
                     yield Button("Load Quiz", id="load-quiz")
+                    
+                    # state2: Ready (quiz loaded)
                     yield Button("Start Quiz", id="start-quiz", classes="hidden")
+                    
+                    # state3: active (quiz running)
                     yield Button("Next Question", id="next-question", classes="hidden")
                     yield Button("End Question", id="end-question", classes="hidden")
+                    
+                    # both state2 and 3 but want it at the end of the row
+                    yield Button("Stop Quiz", id="stop-quiz", classes="hidden ")
+                
                 with Horizontal(id="graphs-area"):
                     yield AnswerHistogramPlot(id="answers-plot")
                     yield PercentCorrectPlot(id="percent-plot")
@@ -354,7 +394,8 @@ class MainScreen(Screen):
         self.load_quiz_btn = self.query_one("#load-quiz", Button)
         self.start_btn = self.query_one("#start-quiz", Button)
         self.nq_btn = self.query_one("#next-question", Button)
-        self.end_quiz_btn = self.query_one("#end-question", Button)
+        self.end_question_btn = self.query_one("#end-question", Button)
+        self.stop_quiz_btn = self.query_one("#stop-quiz", Button)
         self.session_controls_area = self.query_one("#session-controls-area", Horizontal)
         self.hist_plot = self.query_one("#answers-plot", AnswerHistogramPlot)
         self.pc_plot = self.query_one("#percent-plot", expect_type=PercentCorrectPlot)
@@ -470,7 +511,8 @@ class MainScreen(Screen):
         self.hist_plot.reset_question(labels)
 
         #4 enable start quiz and next buttons
-        self.toggle_buttons()
+        # self.toggle_buttons()
+        self.set_button_state("READY")
 
     def update_lobby(self, players: list[dict]) -> None:
         """Update the lobby player list."""
@@ -498,6 +540,8 @@ class MainScreen(Screen):
             return
         self.append_chat(user=self.host_name, msg="Quiz started.")
         self._send_quiz_start()
+        
+        self.set_button_state("ACTIVE")
 
     def begin_question(self, q_idx: int, timer_duration: int | None = None) -> None:
         
@@ -571,31 +615,34 @@ class MainScreen(Screen):
         logger.debug(f"[Host] show_correct_answer(). Percent correct: {percent_correct}")
         self.pc_plot.set_series([*self.pc_plot.percents, percent_correct])
     
-    def end_quiz(self) -> None:
-        """Wrap up the quiz."""
-        self.append_chat(user=self.host_name, msg="Quiz ended.")
-        self.selected_quiz = None
-        self.quiz_preview.set_quiz(None)
-        self.toggle_buttons()
-
-    # ---------- Actions ----------
-    # def action_add_player(self) -> None:
-        # needs to be a function to create a player
-        # see if they already existed and were disconnected
-            # if so -> reinstate
-            # if not -> create new player
+    def stop_quiz(self) -> None:
+        """Stop the quiz prematurely."""
+        if not self.selected_quiz:
+            return
+        msg = "Quiz stopped by host."
+        self._send_chat_internal(msg)
+        self._send_stop_quiz()
+    
+    
+    def end_quiz(self, leaderboard: list[dict] | None = None) -> None:
+        """Wrap up the quiz and show results."""
+        msg = "Quiz ended."
         
-        # pid = f"p{random.randint(1000, 9999)}"
-        # name = random.choice(["alice","bob","carol","dave","eve"]) + str(random.randint(1,9))
-        # self.players.append({"player_id": name, "ping": random.randint(20, 90), "score": 0, "rounds": []})
-        # self._rebuild_leaderboard()
-        # self._rebuild_user_controls()
+        if leaderboard:
+            top_winner = leaderboard[0].get('name', "Nobody")
+            msg += f" Winner: [b]{top_winner}[/b]"
+        
+        self.append_rainbow_chat("System", msg)
+        
+        self.selected_quiz = None
+        if self.quiz_preview:
+            self.quiz_preview.set_quiz(None)
+            
 
-    # def action_remove_player(self) -> None:
-    #     if self.players:
-    #         self.players.pop()
-    #         self._rebuild_leaderboard()
-    #         self._rebuild_user_controls()
+            
+        # reset to lobby mode
+        # self.toggle_buttons()
+        self.set_button_state("LOBBY")
 
     def action_start_quiz(self) -> None:
         self.start_quiz()
@@ -606,8 +653,8 @@ class MainScreen(Screen):
     def action_end_question(self) -> None:
         self.end_question()
         
-    def action_end_quiz(self) -> None:
-        self.end_quiz()
+    def action_stop_quiz(self) -> None:
+        self.stop_quiz()
         
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:
@@ -660,6 +707,11 @@ class MainScreen(Screen):
     def on_input_submitted(self, e: Input.Submitted) -> None:
         if e.input.id == "chat-input":
             self._send_chat_from_input()
+            
+    def _send_chat_internal(self, txt: str) -> None:
+        """Send chat message to server."""
+        if self.app.session:
+            asyncio.create_task(self.app.session.send_chat(txt))
 
     def _send_chat_from_input(self) -> None:
         if self.chat_input and (txt := self.chat_input.value.strip()):
@@ -682,6 +734,11 @@ class MainScreen(Screen):
         if self.app.session and self.selected_quiz:
             asyncio.create_task(self.app.session.send_end_question())
     
+    def _send_stop_quiz(self) -> None:
+        """Send stop quiz event to server."""
+        if self.app.session and self.selected_quiz:
+            asyncio.create_task(self.app.session.send_stop_quiz())  
+    
     # ---------- Placeholder handlers for the user control buttons ----------
     @work
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -701,13 +758,16 @@ class MainScreen(Screen):
             self._send_chat_from_input()
         elif bid == "start-quiz":
             self.start_quiz()
-            
+        elif bid == "stop-quiz":
+            self.stop_quiz()
         elif bid == "next-question":
             if self.round_idx < 1: self.start_quiz()
-            elif self.round_idx < len(self.selected_quiz['questions']): self.next_question()
-            else: 
-                self.append_chat(user=self.host_name, msg="No more questions remaining.")
-                self.end_quiz()
+            # elif self.round_idx < len(self.selected_quiz['questions']): self.next_question()
+            # else: 
+                # self.append_chat(user=self.host_name, msg="No more questions remaining.")
+                # self.end_quiz()
+            else:
+                self.next_question() # server handles end of quiz
         elif bid == "end-question":
             self.end_question()
         elif bid.startswith("create-quiz"):
@@ -725,12 +785,63 @@ class MainScreen(Screen):
     def toggle_buttons(self) -> None:
         """Toggle visibility of quiz control buttons for demo."""
         
+        # toggle pre-quiz buttons
         self.create_quiz_btn.toggle_class("hidden")
         self.load_quiz_btn.toggle_class("hidden")
         self.start_btn.toggle_class("hidden")
+        
+        # toggle game in-progress buttons
         self.nq_btn.toggle_class("hidden")
-        self.end_quiz_btn.toggle_class("hidden")
+        self.end_question_btn.toggle_class("hidden")
+        self.stop_quiz_btn.toggle_class("hidden")
+        
+        # adjust grid layout
         self.session_controls_area.toggle_class("two-grid", "three-grid")
+
+    def set_button_state(self, state: str) -> None:
+        """
+        Update visible buttons based on the current game state.
+        States: 'LOBBY', 'READY', 'ACTIVE'
+        """
+        # 1. Grab all buttons
+        btn_create = self.create_quiz_btn
+        btn_load   = self.load_quiz_btn
+        btn_start  = self.start_btn
+        btn_stop   = self.stop_quiz_btn # "End Quiz"
+        btn_next   = self.nq_btn
+        btn_endq   = self.end_question_btn
+        
+        container = self.session_controls_area
+
+        # 2. Reset all to hidden first
+        for btn in [btn_create, btn_load, btn_start, btn_stop, btn_next, btn_endq]:
+            btn.add_class("hidden")
+        
+        # 3. Apply state logic
+        if state == "LOBBY":
+            # [Create Quiz] [Load Quiz]
+            btn_create.remove_class("hidden")
+            btn_load.remove_class("hidden")
+            
+            container.remove_class("three-grid")
+            container.add_class("two-grid")
+            
+        elif state == "READY":
+            # [Start Quiz] [End Quiz]
+            btn_start.remove_class("hidden")
+            btn_stop.remove_class("hidden")
+            
+            container.remove_class("three-grid")
+            container.add_class("two-grid")
+            
+        elif state == "ACTIVE":
+            # [Next Question] [End Question] [End Quiz]
+            btn_next.remove_class("hidden")
+            btn_endq.remove_class("hidden")
+            btn_stop.remove_class("hidden")
+            
+            container.remove_class("two-grid")
+            container.add_class("three-grid")
 
 class LoginScreen(Screen):
     """Screen for host to enter session details and login."""

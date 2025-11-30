@@ -34,6 +34,8 @@ from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.app import App, ComposeResult
 from textual import events, work
+from rich.text import Text
+from rich.highlighter import Highlighter
 
 
 from server.quiz_types import Quiz, StudentQuestion
@@ -413,12 +415,51 @@ class MainScreen(Screen):
         else:
             logger.warning("[Student UI] Quiz question widget not available to end question.")
     
-    def end_quiz(self) -> None:
-        # logger.debug("Ending quiz from MainScreen.")
+    
+    def end_quiz(self, leaderboard: list[dict]) -> None:
+        
+        logger.debug("[Student UI] end_quiz called.")
+        
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
-            self.round_idx = 0
-            logger.debug("[Student UI] Quiz ended.")
+            if leaderboard:
+                my_score = next((p['score'] for p in leaderboard if p['name'] == self.username), 0)
+                rank = next((i+1 for i, p in enumerate(leaderboard) if p['name'] == self.username), len(leaderboard))
+                
+                printed_tokens = []
+                theme_vars = self.app.get_css_variables()
+                
+                printed_tokens.append(Text("Quiz Finished!\n\n "))
+                
+                tmp = Text("Your Score")
+                tmp.stylize(f"bold underline {theme_vars['accent']}")
+                printed_tokens.append(tmp)
+                printed_tokens.append(Text.from_markup(f": [b]{my_score}[/b]\n "))
+                
+                tmp = Text("Your Rank")
+                tmp.stylize(f"bold underline {theme_vars['accent']}")
+                printed_tokens.append(tmp)
+                printed_tokens.append(Text.from_markup(f": [b]{rank}[/b] out of [b]{len(leaderboard)}[/b]\n\n "))
+                
+                tmp = Text("Top Players")
+                tmp.stylize(f"bold underline {theme_vars['accent']}")
+                printed_tokens.append(tmp)
+                printed_tokens.append(Text(":\n"))
+                
+                for i, p in enumerate(leaderboard[:3]):
+                    printed_tokens.append(Text.from_markup(f"{i+1}. [b]{p['name']}[/b] - {p['score']} points\n"))
+                
+                logger.debug(f"[Student UI] Final leaderboard message constructed. {printed_tokens}")
+                
+                msg = Text.assemble(*printed_tokens)
+                # msg = Text("test")
+                self.quiz_question_widget._render_start_screen(msg)
+            else:
+                self.quiz_question_widget._render_start_screen("Quiz Finished! No leaderboard data available.")
+        else:
+            logger.warning("[Student UI] Quiz question widget not available to end quiz.")
+            
+        self.round_idx = 0
             
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":

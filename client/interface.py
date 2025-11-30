@@ -119,7 +119,7 @@ class SessionInterface:
 
     async def on_event(self, message: dict):
         """Override in subclass (HostSessionModel or StudentSessionModel)."""
-        logger.debug(f"[SessionModel] Received: {message}")
+        logger.debug(f"[Session Model] Received: {message}")
 
 
 
@@ -127,7 +127,7 @@ class SessionInterface:
 class StudentInterface(SessionInterface):
 
     async def on_event(self, message: dict):
-        logger.debug(f"[StudentInterface] Received message: {message}")
+        logger.debug(f"[Student Interface] Received message: {message}")
         
         # check if screen is available
 
@@ -140,14 +140,14 @@ class StudentInterface(SessionInterface):
             logger.debug("Student contacted server successfully.")
             screen = self.get_screen("login")
             if not screen:
-                logger.debug("[StudentInterface] Login screen not available, ignoring title and subtitle update.")
+                logger.debug("[Student Interface] Login screen not available, ignoring title and subtitle update.")
             else:
                 screen.title = f"Contacted server as {self.username}"
                 screen.sub_title = f"Session: {self.session_id}"
             return
         
         elif msg_type == "session.joined":
-            logger.info(f"[StudentInterface] Student joined session {self.session_id}.")
+            logger.info(f"[Student Interface] Student joined session {self.session_id}.")
             self.session_id = message.get("session_id", self.session_id) # update session id if a differeont one as assigned for some reason
             self.username = message.get("name", self.username) # update username if changed by server
             self.host_id = message.get("host_id", self.host_id)
@@ -165,7 +165,7 @@ class StudentInterface(SessionInterface):
         screen = self.get_screen("main")
         if not screen:
             self.pending_events.append(message)
-            logger.debug(f"[StudentInterface] Main screen not available, queuing event.")
+            logger.debug(f"[Student Interface] Main screen not available, queuing event.")
             return
         
         if msg_type == "chat":
@@ -174,7 +174,7 @@ class StudentInterface(SessionInterface):
             screen.append_chat(p, msg)
 
         elif msg_type == "question.next" or msg_type == "quiz.start":
-            logger.debug("[StudentInterface] Received new question from server.")
+            logger.debug("[Student Interface] Received new question from server.")
             qdata = message.get("question")
             if qdata:
                 sq = StudentQuestion.from_dict(qdata)
@@ -191,9 +191,6 @@ class StudentInterface(SessionInterface):
         elif msg_type == "answer.recorded":
             # Optional: lock UI or log confirmation
             logger.debug("Answer recorded by server.")
-
-        elif msg_type == "quiz.finished":
-            screen.end_quiz()
             
         elif msg_type == "question.results":
             correct_idx = message.get("correct_idx")
@@ -212,6 +209,12 @@ class StudentInterface(SessionInterface):
                 # screen.append_chat("System", f"{added} has joined the session.")
                 screen.append_rainbow_chat("System", f"'{added}' has joined the session.")
             screen.update_lobby(plist)
+            
+        elif msg_type == "quiz.finished":
+            logger.debug("[Student Interface] Quiz finished received.")
+            leaderboard = message.get("leaderboard", [])
+            logger.debug(f"[Student Interface] Leaderboard: {leaderboard}")
+            screen.end_quiz(leaderboard)
 
         elif msg_type == "kicked":
             logger.warning("Student was kicked from session.")
@@ -232,7 +235,7 @@ class StudentInterface(SessionInterface):
             screen.append_chat("System", "Error: Incorrect password.")
             screen._show_error(message["msg"])
         else:
-            logger.debug(f"[StudentInterface] Unhandled message type: {msg_type}")
+            logger.debug(f"[Student Interface] Unhandled message type: {msg_type}")
             await super().on_event(message)
 
 ################################################
@@ -360,7 +363,8 @@ class HostInterface(SessionInterface):
             screen.show_correct_answer(correct_idx, updated_histogram)
                 
         elif msg_type == "quiz.finished":
-            screen.end_quiz()
+            leaderboard = message.get("leaderboard", [])
+            screen.end_quiz(leaderboard)
         else:
             await super().on_event(message)
     
@@ -411,4 +415,17 @@ class HostInterface(SessionInterface):
         """Send end question command to the server."""
         await self.send({
             "type": "question.end"
+        })
+    
+    async def send_stop_quiz(self):
+        """Send stop quiz command to the server."""
+        await self.send({
+            "type": "quiz.stop"
+        })
+        
+    async def send_kick_player(self, player_id: str):
+        """Send kick player command to the server."""
+        await self.send({
+            "type": "player.kick",
+            "player_id": player_id
         })

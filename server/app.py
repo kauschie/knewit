@@ -434,6 +434,27 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     await broadcast_lobby(session, removed_player=kid)
                 continue
 
+            if msg_type == "quiz.stop" and conn["is_host"]:
+                # mark session as finished
+                session.state = QuizState.FINISHED
+                
+                # generate final leaderboard
+                leaderboard = [
+                    {"name": p.player_id, "score": p.score}
+                    for p in sorted(
+                        session.players.values(),
+                        key=lambda x: x.score,
+                        reverse=True
+                    )
+                ]
+                
+                await printlog(f"[quiz] stopping quiz for session={session.id}, final leaderboard: {leaderboard}")
+                await broadcast(session, {
+                    "type": "quiz.finished",
+                    "leaderboard": leaderboard
+                })
+                continue
+
             # ------------------------------------------------------
             # STUDENT ACTIONS
             # ------------------------------------------------------
