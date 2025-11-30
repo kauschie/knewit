@@ -40,18 +40,31 @@ from quiz_types import (
     QuizSession, Quiz, Question, QuizState, StudentQuestion,
     create_session, get_session, delete_session
 )
+
+
 import logging
-# make sure file exists first
+
+# 1. Setup Log Directory
 log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
 log_file = log_dir / "server.log"
-if not log_file.exists():
-    log_file.touch()
-logging.basicConfig(filename=str(log_file), level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-# use separate log from host / student uis
-logger = logging.getLogger("server_logger")
-logger.setLevel(logging.DEBUG)
-logger.debug("Logger module loaded from app.py")
+
+# 2. Configure Root Logger
+# force=True ensures we override Uvicorn's default logging config
+logging.basicConfig(
+    filename=str(log_file), 
+    level=logging.INFO, 
+    format='%(asctime)s %(levelname)s [SERVER] %(message)s',
+    filemode='w',  # Overwrite on restart (change to 'a' to keep history)
+    force=True
+)
+
+# 3. Create Server Logger
+logger = logging.getLogger("server")
+logger.setLevel(logging.DEBUG) # <--- Enable DEBUG for app.py specific logs
+
+# 4. Enable DEBUG for shared modules (like quiz_types which uses 'knewit')
+logging.getLogger("knewit").setLevel(logging.DEBUG)
 
 
 # Heartbeat config
@@ -59,7 +72,6 @@ PING_INTERVAL = 20
 
 # Lobby broadcast interval
 LOBBY_UPDATE_INTERVAL = 5
-
 
 # Seconds of silence before we declare a player "stale"
 PLAYER_TIMEOUT = 60
@@ -672,9 +684,9 @@ async def lobby_broadcast_loop():
 
 async def printlog(message: str):
     """Helper to log messages to both console and file."""
-    print(message)
-    logger.info(message)
+    # print(message)
+    logger.debug(message)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=49000, log_level="debug")
+    uvicorn.run(app, host="0.0.0.0", port=49000, log_level="debug", log_config=None)

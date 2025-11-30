@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 import random
+import logging
 
 from typing import List
 from textual.screen import Screen
@@ -46,12 +47,6 @@ from knewit.client.widgets.quiz_question_widget import QuizQuestionWidget
 from client.interface import StudentInterface
 from client.common import logger
 
-
-import logging
-logging.basicConfig(filename='logs/host_log.log', level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.debug("Logger module loaded from student_ui.")
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
@@ -725,4 +720,25 @@ class StudentUIApp(App):
         logger.debug(f"Switched to mode: {event.mode}")
 
 if __name__ == "__main__":
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    # 1. Set Root logger to INFO. 
+    # This automatically silences DEBUG noise from Textual, Websockets, Asyncio, etc.
+    logging.basicConfig(
+        filename=log_dir / 'student.log',  # (or student.log)
+        level=logging.INFO,             # <--- THE CHANGE
+        format='%(asctime)s %(levelname)s [STUDENT] %(message)s',
+        filemode='w',
+        force=True
+    )
+    
+    # 2. Explicitly enable DEBUG for YOUR logger only
+    # Since common.py defines logger = logging.getLogger("knewit"), we enable that.
+    logging.getLogger("knewit").setLevel(logging.DEBUG)
+    
+    # If host_ui.py or other local modules use __name__, enable them too if needed
+    # logging.getLogger("client").setLevel(logging.DEBUG) 
+
+    logging.info("Host UI starting up...")
     StudentUIApp().run()
