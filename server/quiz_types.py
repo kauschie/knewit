@@ -91,6 +91,7 @@ class Player:
     player_id: str
     score: int = 0
     answered_current: bool = False
+    round_scores: List[int] = field(default_factory=list)  # scores per question
     # Runtime/network metadata (updated by server on pings/pongs)
     last_pong: Optional[float] = None  # server epoch seconds when last pong received
     latency_ms: Optional[float] = None
@@ -104,7 +105,7 @@ class Player:
         return {
             "player_id": self.player_id,
             "score": self.score,
-            # Include latency if available (float ms) so UIs can display it.
+            "round_scores": self.round_scores,
             "latency_ms": None if self.latency_ms is None else round(self.latency_ms, 1),
             "is_muted": self.is_muted,
         }
@@ -361,6 +362,36 @@ class QuizSession:
         if self.current_question_idx >= len(self.quiz.questions):
             return None
         return self.quiz.questions[self.current_question_idx]
+
+    def close_question_scoring(self) -> None:
+        """
+        Finalize scoring for the current question.
+        Appends points earned in this round to player.round_scores.
+        """
+        q = self.get_current_question()
+        if not q:
+            return
+
+        current_idx = self.current_question_idx
+        
+        bucket = self.answer_log.get(current_idx, {})
+        
+        for pid, player in self.players.items():
+            
+            # Ensure round_scores list padds unanswered questions with 0
+            while(len(player.round_scores) < current_idx):
+                player.round_scores.append(0)
+            
+            # Determine points earned for this specific question
+            points = 0
+            if pid in bucket:
+                ans_idx = bucket[pid]
+                if ans_idx == q.correct_idx:
+                    points = 1  # Logic can be expanded for timers later
+            
+            player.round_scores.append(points)
+            # Note: player.score is already updated in record_answer
+        
 
     # ---------- Answer tracking ----------
 

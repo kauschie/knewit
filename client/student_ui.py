@@ -362,7 +362,7 @@ class MainScreen(Screen):
             name = p["player_id"]
             total = int(p.get("score", 0))
             is_muted = p.get("is_muted", False)
-            rounds = [int(v) for v in p.get("rounds", [])]
+            rounds = [int(v) for v in p.get("round_scores", [])]
 
             row = [ping, name, total, *rounds]
             dt.add_row(*row)

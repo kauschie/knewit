@@ -407,11 +407,11 @@ class MainScreen(Screen):
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
-            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
+            ping = int(p.get("latency_ms", 0)) if p.get("latency_ms") is not None else "-"
             name = p["player_id"]
             total = int(p.get("score", 0))
             is_muted = p.get("is_muted", False)
-            rounds = [int(v) for v in p.get("rounds", [])]
+            rounds = [int(v) for v in p.get("round_scores", [])]
 
             row = [ping, name, total, *rounds]
             dt.add_row(*row)
