@@ -18,6 +18,7 @@ class QuizPreviewLog(RichLog):
     quiz: Optional[Dict[str, Any]] = reactive(None, init=False)
     current_q: Optional[int] = reactive(None, init=False)   # 0-based index
     show_answers: bool = reactive(False, init=False)
+    message: Optional[str] = reactive(None)
 
     def __init__(self, *args, **kwargs) -> None:
         # sensible defaults: wrap lines, don't trim, keep auto-scroll off by default
@@ -31,13 +32,23 @@ class QuizPreviewLog(RichLog):
     # ---- Public API --------------------------------------------------------
 
     def set_quiz(self, quiz: Optional[Dict[str, Any]]) -> None:
+        self.message = None
         self.set_current_question(0)
         self.quiz = quiz   # triggers re-render via watch
 
+    def set_message(self, msg: str | Text) -> None:
+        """ Display a specific message (e.g. results) clearing the quiz preview."""
+        self.quiz = None
+        if isinstance(msg, str):
+            self.message = Text.from_markup(msg)
+        else:
+            self.message = msg
+        self._render_all()
+            
     def set_current_question(self, idx: Optional[int]) -> None:
         self.current_q = idx
         if self.already_scrolled is True:
-            logger.debug("Current question changed; resetting already_scrolled to False")
+            # logger.debug("Current question changed; resetting already_scrolled to False")
             self.already_scrolled = False
 
     def set_show_answers(self, show: bool) -> None:
@@ -70,10 +81,12 @@ class QuizPreviewLog(RichLog):
     def _render_all(self) -> None:
         """Clear and re-render the full preview."""
         self.clear()
+        if self.message:
+            self.write(self.message)
+            return
 
         if not self.quiz:
             self.write(Text("No quiz selected.", style="dim"))
-            self.scroll_home()
             return
 
         title = self.quiz.get("title", "Untitled Quiz")
@@ -130,13 +143,13 @@ class QuizPreviewLog(RichLog):
                 
                 # self.call_after_refresh(lambda: self.scroll_end(animate=True, duration=5, easing="out_cubic"))
                 self.call_after_refresh(lambda: self.scroll_end(animate=True, speed=5, easing="out_cubic"))
-                logger.debug("Scheduled scroll to end after refresh.")
+                # logger.debug("Scheduled scroll to end after refresh.")
                 
             except Exception:
                 # fallback if call_after_refresh isn't available in this Textual
                 # version — call directly (may be instantaneous)
-                logger.debug("call_after_refresh not available; scrolling directly")
+                # logger.debug("call_after_refresh not available; scrolling directly")
                 self.scroll_end(animate=True, duration=5, easing="out_cubic")
             finally:
-                logger.debug("Setting already_scrolled to True after scrolling.")
+                # logger.debug("Setting already_scrolled to True after scrolling.")
                 self.already_scrolled = True
