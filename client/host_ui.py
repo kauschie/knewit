@@ -35,6 +35,7 @@ from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent
 from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
 from textual.app import App, ComposeResult
 from textual import events, on, work
+from rich.text import Text
 
 from client.interface import HostInterface
 from client.common import logger
@@ -629,19 +630,37 @@ class MainScreen(Screen):
         msg = "Quiz ended."
         
         if leaderboard:
-            top_winner = leaderboard[0].get('name', "Nobody")
-            msg += f" Winner: [b]{top_winner}[/b]"
+            top_winner = leaderboard[0]['name'] if leaderboard else "Nobody"
+            msg += f" Winner: {top_winner}"
+        self.append_chat(user=self.host_name, msg=msg)
         
-        self.append_rainbow_chat("System", msg)
+        # show final results in quiz preview
+        if self.quiz_preview:
+            printed_tokens = []
+            theme_vars = self.app.get_css_variables()
+            accent = theme_vars.get("accent", "green")
+            printed_tokens.append(Text("Quiz Finished!\n\n", style="bold"))
+            
+            # Title
+            tmp = Text("Final Leaderboard")
+            tmp.stylize(f"bold underline {accent}")
+            printed_tokens.append(tmp)
+            printed_tokens.append(Text(":\n\n"))
+
+            if leaderboard:
+                for i, p in enumerate(leaderboard[:5]):  # Show top 5 for host
+                    rank_style = "bold yellow" if i == 0 else "bold"
+                    printed_tokens.append(Text.from_markup(f"{i+1}. [{rank_style}]{p['name']}[/] - {p['score']} points\n"))
+            else:
+                printed_tokens.append(Text("No player data available."))
+
+            logger.debug(f"[Host Ui] Final leaderboard printed in quiz preview.") 
+            logger.debug(f"[Host Ui] Leaderboard data: {printed_tokens}")   
+            final_msg = Text.assemble(*printed_tokens)
+            
+            self.quiz_preview.set_message(final_msg)
         
         self.selected_quiz = None
-        if self.quiz_preview:
-            self.quiz_preview.set_quiz(None)
-            
-
-            
-        # reset to lobby mode
-        # self.toggle_buttons()
         self.set_button_state("LOBBY")
 
     def action_start_quiz(self) -> None:
