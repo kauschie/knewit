@@ -278,22 +278,31 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
                 # Add player
                 await printlog(f"[session] player={player_id} joining session id={session.id}")
+                
+                # check for kicked status explicitly to give a better error message
+                if player_id in session.kicked_players:
+                    await ws.send_text(json.dumps({
+                        "type": "error",
+                        "message": "You have been kicked from this session"
+                    }))
+                    # close connection immediately to stop retry loops
+                    await ws.close()
+                    continue
+                
                 player = session.add_player(player_id, ws=ws)
-                player_list = [p.player_id for p in session.players.values()]
-                await printlog(f"[session] current players in session: {player_list}")
+                
                 if not player:
                     await ws.send_text(json.dumps({
                         "type": "error",
                         "message": "Name already taken"
                     }))
                     continue
+                
+                player_list = [p.player_id for p in session.players.values()]
+                await printlog(f"[session] current players in session: {player_list}")
 
                 conn["session"] = session
                 # session.connections[player_id] = ws
-                
-                logger.debug(f"[ws] player={player_id} joined session={session.id}")
-                for pid in session.players:
-                    logger.debug(f"    player in session: {pid}")
 
                 await ws.send_text(json.dumps({
                     "type": "session.joined",
@@ -440,16 +449,66 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
             if msg_type == "player.kick" and conn["is_host"]:
                 kid = data.get("player_id")
-                if kid in session.connections:
-                    try:
-                        await session.connections[kid].send_text(json.dumps({
-                            "type": "kicked"
-                        }))
-                        await session.connections[kid].close()
-                    except:
-                        pass
-                    session.remove_player(kid)
+                
+                # FIX: Check existence in PLAYERS, not just connections.
+                # This ensures we can remove "zombie" players who might have lost 
+                # their socket but are still in the data model.
+                if kid in session.players:
+                    
+                    # 1. Try to close the socket nicely if it exists
+                    if kid in session.connections:
+                        try:
+                            await session.connections[kid].send_text(json.dumps({
+                                "type": "kicked"
+                            }))
+                            await session.connections[kid].close()
+                        except:
+                            pass
+                    
+                    # 2. Force remove from session data
+                    session.kick_player(kid)
+                    
+                    # 3. Broadcast update
                     await broadcast_lobby(session, removed_player=kid)
+                    await broadcast(session, {
+                                    "type": "chat",
+                                    "player_id": "System",
+                                    "msg": f"Player {kid} has been kicked by the host."
+                                    })
+                    await printlog(f"[session] Host kicked player {kid} from session {session.id}")
+                else:
+                    await printlog(f"[session] Failed kick: Player {kid} not found in session {session.id}")
+                
+                continue
+            
+                    
+            
+            
+
+            if msg_type == "player.mute" and conn["is_host"]:
+                target_id = data.get("player_id")
+                player = session.players.get(target_id)
+                if player:
+                    # Toggle state
+                    player.is_muted = not player.is_muted
+                    action = "muted" if player.is_muted else "unmuted"
+                    
+                    await printlog(f"[session] Host {action} player {target_id}")
+                    
+                    # Broadcast lobby update so Host UI reflects the change
+                    await broadcast_lobby(session)
+                    
+                    # Optional: Notify the specific player (system message)
+                    target_ws = session.connections.get(target_id)
+                    if target_ws:
+                        try:
+                            await target_ws.send_text(json.dumps({
+                                "type": "chat",
+                                "player_id": "System",
+                                "msg": f"You have been {action} by the host."
+                            }))
+                        except:
+                            pass
                 continue
 
             if msg_type == "quiz.stop" and conn["is_host"]:

@@ -240,8 +240,9 @@ class MainScreen(Screen):
 
     /* Optional cosmetics */
     .uc-name { text-align: center; height:1fr; }
-    .uc-kick { outline: ascii $warning; height:1fr;}
-    .uc-mute { outline: round $success; height:1fr;}
+    .uc-kick { outline: round $warning; height:1fr;}
+    .uc-mute { outline: round $primary; height:1fr;}
+    .uc-unmute { outline: round $warning; height:1fr;}
 
     .uc-row {
         layout: grid;
@@ -483,11 +484,18 @@ class MainScreen(Screen):
         for p in self.players:
             # pid = p["player_id"]
             name = p["player_id"]
+            if name == self.host_name:
+                continue  # skip self
+            
+            is_muted = p.get("is_muted", False)
+            
+            mute_label = "Unmute" if is_muted else "Mute"
+            mute_variant = "uc-unmute" if is_muted else "uc-mute"
 
             row = Horizontal(
                             Label(name, classes="uc-name"),
                             Button("Kick", id=f"kick-{name}", classes="uc-kick"),
-                            Button("Mute", id=f"mute-{name}", classes="uc-mute"),
+                            Button(mute_label, id=f"mute-{name}", classes=mute_variant),
                             classes="uc-row",
                         )
 
@@ -781,9 +789,15 @@ class MainScreen(Screen):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = (event.button.id or "")
         if bid.startswith("kick-"):
-            self.append_chat(user=self.host_name, msg=f"Kicked {bid.removeprefix('kick-')}")
+            player_id = bid.removeprefix("kick-")
+            if self.app.session:
+                asyncio.create_task(self.app.session.send_kick_player(player_id))
         elif bid.startswith("mute-"):
             self.append_chat(user=self.host_name, msg=f"Toggled mute for {bid.removeprefix('mute-')}")
+            player_id = bid.removeprefix("mute-")
+            if self.app.session:
+                asyncio.create_task(self.app.session.send_toggle_mute(player_id))
+        
         elif bid.startswith("load-quiz"):
             self.selected_quiz = await self.app.push_screen_wait(QuizSelector())  # get data
             if not self.selected_quiz:
@@ -799,10 +813,6 @@ class MainScreen(Screen):
             self.stop_quiz()
         elif bid == "next-question":
             if self.round_idx < 1: self.start_quiz()
-            # elif self.round_idx < len(self.selected_quiz['questions']): self.next_question()
-            # else: 
-                # self.append_chat(user=self.host_name, msg="No more questions remaining.")
-                # self.end_quiz()
             else:
                 self.next_question() # server handles end of quiz
         elif bid == "end-question":

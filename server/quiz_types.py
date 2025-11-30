@@ -281,6 +281,7 @@ class QuizSession:
 
     # Core entities
     players: Dict[str, Player] = field(default_factory=dict)          # player_id -> Player
+    kicked_players: Set[str] = field(default_factory=set)   # set of player_ids who have been kicked
     quiz: Optional[Quiz] = None
     password: Optional[str] = None
 
@@ -300,7 +301,13 @@ class QuizSession:
     # ---------- Player management ----------
 
     def add_player(self, player_id: str, ws: WebSocket) -> Optional[Player]:
-        """Add player to lobby. Returns None if name is taken."""
+        """Add player to lobby. Returns None if name is taken or user is kicked."""
+        
+        # check if kicked
+        if player_id in self.kicked_players:
+            return None
+        
+        # check if name taken / active
         for player in self.players.values():
             if player.player_id == player_id:
                 return None
@@ -314,6 +321,11 @@ class QuizSession:
         """Remove a player from the session."""
         self.players.pop(player_id, None)
         self.connections.pop(player_id, None)
+
+    def kick_player(self, player_id: str) -> None:
+        """Kick a player from the session."""
+        self.kicked_players.add(player_id)
+        self.remove_player(player_id)
 
     # ---------- Quiz lifecycle ----------
 
