@@ -39,6 +39,7 @@ class QuizQuestionWidget(Widget):
     answered_option: Optional[int] = reactive(None)
     answered_time: Optional[float] = reactive(None)
     has_started: bool = reactive(False)
+    msg: Optional[Text] = Text("Waiting for Quiz to start...")
 
     def compose(self) -> ComposeResult:
         with Container(id="quiz-question-grid"):
@@ -227,16 +228,32 @@ class QuizQuestionWidget(Widget):
     # --- Internal helpers ---
     
 
-
-    def _render_start_screen(self, msg: str = "Waiting for Quiz to start...") -> None:
+    def _render_start_screen(self, msg: str | Text | None = None) -> None:
         """Render a start screen (before any question is shown)."""
         log = self.log
         log.clear()
-        t_msg = Text(msg, justify="left", overflow="fold", no_wrap=False)
-        theme_vars = self.app.get_css_variables()
-        accent_color = theme_vars.get("accent", "pink")
-        t_msg.stylize(f"bold underline {accent_color}")
-        log.write(t_msg)
+        
+        t_msg: Text
+        
+        
+        if msg is None:
+            t_msg = self.msg
+            
+        elif isinstance(msg, str):
+            try:
+                t_msg = Text.from_markup(msg, justify="left", overflow="fold",)
+            except Exception as e:
+                logger.error(f"[QuizQuestionWidget] Error parsing markup in start screen message: {e}")
+                t_msg = Text(msg, justify="left", overflow="fold", no_wrap=False)
+            
+            self.msg = t_msg
+            
+        else:
+            # msg is already Text
+            self.msg = msg
+            t_msg = msg
+                
+        log.write(t_msg, expand=True, shrink=True)
         
 
     def _render_question_and_options(self) -> None:
