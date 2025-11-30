@@ -441,7 +441,9 @@ class MainScreen(Screen):
 
         # 1) Define columns
         base_labels = ["Ping", "Name", "Total"]
-        round_labels = [f"R{i}" for i in range(1, self.round_idx + 1)]
+        # ensure round_idx is at least 0 to prevent range errors
+        current_rounds_count = max(0, self.round_idx)
+        round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
@@ -449,11 +451,20 @@ class MainScreen(Screen):
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
-            ping = int(p.get("latency_ms", 0)) if p.get("latency_ms") is not None else "-"
+            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
             total = int(p.get("score", 0))
             is_muted = p.get("is_muted", False)
-            rounds = [int(v) for v in p.get("round_scores", [])]
+            
+    
+            # only take as many scores as we have columns for
+            # this prevents datatable from crashing if the server sends more rounds than we display
+            raw_rounds = p.get("round_scores", [])
+            rounds = [int(v) for v in raw_rounds[:current_rounds_count]]
+            
+            while (len(rounds) < current_rounds_count):
+                # pad unanswered questions with 0
+                rounds.append(0)
 
             row = [ping, name, total, *rounds]
             dt.add_row(*row)
@@ -612,8 +623,16 @@ class MainScreen(Screen):
         self.update_percent_correct(correct_idx, updated_histogram)
     
     def update_percent_correct(self, correct_idx, updated_histogram) -> None:
+        # prevent duplicate plotting
+        current_plot_length = len(self.pc_plot.percents) if self.pc_plot else 0
+        target_round = self.round_idx # round_idx is 1-based
+        if current_plot_length >= target_round:
+            logger.debug(f"[Host UI] Percent correct for round {target_round} already plotted; skipping.")
+            return
+        
+        
         percent_correct = self.calculate_percent_correct(correct_idx, updated_histogram)
-        logger.debug(f"[Host] show_correct_answer(). Percent correct: {percent_correct}")
+        logger.debug(f"[Host UI] show_correct_answer(). Percent correct: {percent_correct}")
         self.pc_plot.set_series([*self.pc_plot.percents, percent_correct])
     
     def stop_quiz(self) -> None:

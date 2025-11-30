@@ -269,7 +269,7 @@ class MainScreen(Screen):
         super().__init__()
         # general
         self.players: list[dict] = []       # [{player_id, name, score, ping}]
-        self.round_idx: int = -1             # track dynamic round columns
+        self.round_idx: int = 0             # track dynamic round columns
         
         # refs populated on_mount
         # general
@@ -352,7 +352,10 @@ class MainScreen(Screen):
 
         # 1) Define columns
         base_labels = ["Ping", "Username", "Total"]
-        round_labels = [f"R{i}" for i in range(1, self.round_idx + 1)]
+        
+        logger.debug(f"[Student UI] Rebuilding leaderboard for round_idx={self.round_idx}")
+        current_rounds_count = max(0, self.round_idx)
+        round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
@@ -364,7 +367,11 @@ class MainScreen(Screen):
             name = p["player_id"]
             total = int(p.get("score", 0))
             is_muted = p.get("is_muted", False)
-            rounds = [int(v) for v in p.get("round_scores", [])]
+            raw_rounds = p.get("round_scores", [])
+            rounds = [int(v) for v in raw_rounds[:current_rounds_count]]
+            
+            while (len(rounds) < current_rounds_count):
+                rounds.append(0)  # pad unanswered questions with 0
 
             row = [ping, name, total, *rounds]
             dt.add_row(*row)
@@ -400,7 +407,7 @@ class MainScreen(Screen):
         logger.debug("[Student UI] next_question called.")
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
-            self.round_idx = sq.index
+            self.round_idx = sq.index + 1
             self.set_quiz_question(sq)
         else:
             logger.warning("[Student UI] Quiz question widget not available to start next question.")

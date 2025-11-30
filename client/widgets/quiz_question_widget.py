@@ -173,7 +173,7 @@ class QuizQuestionWidget(Widget):
             - "options": list[str]
         """
         self.current_question = {"prompt": question.prompt, "options": question.options}
-        self.current_index = question.index
+        self.current_index = question.index + 1
         self.total_questions = question.total
         self.duration = question.timer
 
