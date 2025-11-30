@@ -96,7 +96,8 @@ class SessionInterface:
                 logger.info(f"Resetting to login. Reason: {error_msg}")
             
             # Switch to login
-            await self.app.switch_mode("login") 
+            # await self.app.switch_mode("login") 
+            await self.app.pop_screen()
             
             # Optional: Display error on login screen
             if error_msg:
