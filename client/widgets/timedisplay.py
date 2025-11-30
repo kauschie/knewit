@@ -2,10 +2,15 @@ from time import monotonic
 
 from textual.widgets import Static
 from textual.reactive import reactive
+from textual.message import Message
 
 
 class TimeDisplay(Static):
     """A countdown timer widget (MM:SS.ss)."""
+
+    class TimerFinished(Message):
+        """Message emitted when the timer reaches zero."""
+        pass
 
     # total duration (seconds) and remaining time are reactive so UI updates automatically
     duration: float = reactive(0.0)
@@ -86,6 +91,8 @@ class TimeDisplay(Static):
             self._running = False
             self._ticker.pause()
             self.remaining = 0.0  # clamp
+            # emit event message
+            self.post_message(self.TimerFinished())
 
     def _recompute_remaining(self) -> None:
         elapsed = self._elapsed_base + (monotonic() - self._t0 if self._running else 0.0)

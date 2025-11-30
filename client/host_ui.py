@@ -825,9 +825,17 @@ class MainScreen(Screen):
             self.selected_quiz = quiz_data
             self.append_chat(user=self.host_name, msg=f"Created quiz: {self.selected_quiz['title']}")
             self._initialize_quiz()
+            
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.tab.id == "user-controls":
             self._rebuild_user_controls()
+            
+    def on_time_display_timer_finished(self, event: TimeDisplay.TimerFinished) -> None:
+        """Handle timer finished event."""
+        if self.round_active:
+            # self.append_chat(user="System", msg="Time's up for the current question.")
+            logger.info("[Host UI] Timer finished; auto-ending question.")
+            self.end_question()
 
     def toggle_buttons(self) -> None:
         """Toggle visibility of quiz control buttons for demo."""

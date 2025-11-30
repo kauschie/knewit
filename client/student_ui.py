@@ -84,13 +84,16 @@ class MainScreen(Screen):
         layout: grid;
         grid-size: 4;
         grid-columns: 1fr 1fr 1fr 1fr;
-        grid-rows: 1fr 8fr 1fr;
+        grid-rows: auto 8fr 3;
         text-align: center;
+        align: center middle;
         # border: solid red;
         height: 100%;
         width: 100%;
-        grid-gutter: 1;
+        grid-gutter: 2 1;
         background: $background;
+        margin: 0;
+        padding: 0;
     }
 
     #question-log {
@@ -112,6 +115,7 @@ class MainScreen(Screen):
         background: $background;
         align: center bottom;
         outline: round $accent;
+        min-width: 5;
     }
 
     #timer-widget {
@@ -120,21 +124,24 @@ class MainScreen(Screen):
         layout: grid;
         grid-size: 2;
         grid-gutter: 1;
-        grid-columns: 1fr 1fr;
+        # grid-columns: 1fr 1fr;
+        grid-columns: auto auto;
+        align: center middle;
         # background: $panel;
+        # margin: 1;
     }
 
     #timer-label {
         height: 100%;
         column-span: 1;
-        content-align: right top;
+        content-align: right middle;
         # background: blue;
     }
 
     #timer-display {
         height: 100%;
         column-span: 1;
-        content-align: left top;
+        content-align: left middle;
         # background: red;
     }
 
