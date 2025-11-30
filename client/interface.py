@@ -247,8 +247,17 @@ class StudentInterface(SessionInterface):
             await self.reset_to_login(error_msg=reason)
 
         elif msg_type == "error":
-            logger.error(f"Server error: {message.get('detail')}")
-            screen.append_chat("System", f"Error: {message.get('detail')}")
+            detail = message.get('message') or message.get('detail')
+            logger.error(f"Server error: {detail}")
+            
+            # If we are on the login screen, show the error there
+            if self.app.screen.name == "login":
+                self.app.screen._show_error(detail)
+                # If kicked, force disconnect to be safe
+                if "kicked" in str(detail).lower():
+                    await self.stop()
+            else:
+                screen.append_chat("System", f"Error: {detail}")
             
         elif msg_type == "reject.pw":
             logger.error("Password rejected by server.")
@@ -447,6 +456,13 @@ class HostInterface(SessionInterface):
         """Send kick player command to the server."""
         await self.send({
             "type": "player.kick",
+            "player_id": player_id
+        })
+    
+    async def send_toggle_mute(self, player_id: str):
+        """Send toggle mute command to the server."""
+        await self.send({
+            "type": "player.mute",
             "player_id": player_id
         })
         
