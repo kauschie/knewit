@@ -1,4 +1,4 @@
-# server/app_new.py
+# server/app.py
 """
 Enhanced quiz server with lobby system, quiz creation, and session management.
 
@@ -22,6 +22,7 @@ Notes / operational caveats:
 """
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -56,6 +57,9 @@ logger.debug("Logger module loaded from app.py")
 # Heartbeat config
 PING_INTERVAL = 20
 
+# Lobby broadcast interval
+LOBBY_UPDATE_INTERVAL = 5
+
 
 # Seconds of silence before we declare a player "stale"
 PLAYER_TIMEOUT = 60
@@ -66,16 +70,18 @@ HARD_TIMEOUT = 300
 
 # Background task reference
 _ping_task: asyncio.Task | None = None
+_lobby_task: asyncio.Task | None = None
 
 BLOCKED_IPS = set()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """App lifespan handler."""
-    global _ping_task
+    global _ping_task, _lobby_task
     await printlog("[lifespan] starting")
     
     _ping_task = asyncio.create_task(ping_loop())
+    _lobby_task = asyncio.create_task(lobby_broadcast_loop())
     
     try:
         yield
@@ -83,7 +89,9 @@ async def lifespan(app: FastAPI):
         await printlog("[lifespan] shutting down")
         if _ping_task:
             _ping_task.cancel()
-            await asyncio.gather(_ping_task, return_exceptions=True)
+        if _lobby_task:
+            _lobby_task.cancel()
+        await asyncio.gather(_ping_task, _lobby_task,return_exceptions=True)
         await printlog("[lifespan] bye")
 
 
@@ -145,7 +153,6 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
 
             # Update last_seen for any inbound message
             if conn["session"] and player_id in conn["session"].players:
-                import time
                 now = time.time()
                 player = conn["session"].players[player_id]
                 player.last_seen = now
@@ -156,7 +163,6 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
             if msg_type == "pong":
                 await printlog(f"[ws] pong from player={player_id}")
                 if conn["session"]:
-                    import time
                     now = time.time()
                     p = conn["session"].players.get(player_id)
                     if p:
@@ -165,7 +171,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         p.latency_ms = (now - data.get("ts", now)) * 500 # really * 100 / 2 to get latency instead of RTT
                         await printlog(f"[ws] updated latency for player={player_id}: {p.latency_ms:.2f} ms")
                         
-                await broadcast_lobby(conn["session"])
+                # await broadcast_lobby(conn["session"]) # background task handles this now
                 continue
 
             # ------------------------------------------------------
@@ -654,6 +660,15 @@ async def ping_loop():
                     
                 
                 # Notify remaining clients that lobby changed
+async def lobby_broadcast_loop():
+    """Periodically broadcast lobby state to all sessions."""
+    from quiz_types import quiz_sessions
+
+    while True:
+        await asyncio.sleep(LOBBY_UPDATE_INTERVAL)  # every 5 seconds
+        for session in list(quiz_sessions.values()):
+            if session.players:
+                await broadcast_lobby(session)
 
 async def printlog(message: str):
     """Helper to log messages to both console and file."""
