@@ -74,8 +74,8 @@ class RichLogChat(RichLog):
 
     CSS = """
     RichLogChat {
-        border: solid $boost 50%;
-        background: $boost 10%;
+        border: round $accent 50%;
+        background: $background 10%;
         height: 1fr;
         width: 1fr;
         # overflow-x: hidden;
