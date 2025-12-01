@@ -1,57 +1,39 @@
 """
-Standalone Textual playground for redesigning the host UI.
-
-Run this locally while iterating on layout and styling. It uses sample data
-and simple keyboard-driven interactions so you can refine the UI before
-connecting event handlers to the real WebSocket logic in `host_tui.py`.
-
-Usage:
-    python knewit/client/host_ui_playground.py
-
-Controls:
-  - a : add a sample player
-  - r : remove selected player
-  - TAB / Shift+TAB : move focus between columns
-  - q : quit
-
-This file intentionally keeps networking out of the loop. It exposes small
-methods (update_players, set_quiz_preview) you can later call from
-`host_tui.py` or tests to drive the UI.
+Student TUI for KnewIt.
+Handles the main game flow, logging, and UI rendering for the participant.
 """
-
 from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-sys.path.append(str(Path(__file__).resolve().parents[2]))
 import random
 import logging
 
-from typing import List
+# Add parent folders to path if running directly
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
 from textual.screen import Screen
-from textual.messages import Message
 from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, Button, Log
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message import Message
+from textual.containers import Horizontal, Vertical
 from textual.app import App, ComposeResult
 from textual import events, work
 from rich.text import Text
-from rich.highlighter import Highlighter
 
-
-from server.quiz_types import Quiz, StudentQuestion
-from client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
+from server.quiz_types import StudentQuestion, Quiz
+from client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, BorderedInputButtonContainer
 from client.utils import _student_validate
 from client.widgets.chat import RichLogChat
 from client.widgets.quiz_question_widget import QuizQuestionWidget
 from client.interface import StudentInterface
 from client.common import logger
-
+from client.session_log import SessionLogger, load_latest_incomplete_history
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
+LABELS = ["A", "B", "C", "D"]
 
-from textual.message import Message
 
 class TitleUpdate(Message):
     def __init__(self, new_title: str) -> None:
@@ -62,6 +44,7 @@ class TitleUpdate(Message):
 class MainScreen(Screen):
     """Student main screen."""
 
+    # --- RESTORED ORIGINAL CSS ---
     CSS = """
     #main-container { 
         height: 100%; 
@@ -257,39 +240,22 @@ class MainScreen(Screen):
     SUB_TITLE = "Demo Session"
 
     BINDINGS = [
-        # ("a", "add_player", "Add player"),
-        # ("r", "remove_player", "Remove player"),
-        # ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
         ("enter", "send_chat", "Send chat input"),
-        ("1", "start_quiz", "Start quiz"),  # demo: start quiz
-        ("2", "end_question", "End question"),  # demo: end question
-        ("3", "next_question", "Next Question"),  # demo: next round
-        ("4", "end_quiz", "End quiz"),  # demo: end quiz
     ]
 
     def __init__(self) -> None:
         super().__init__()
-        # general
-        self.players: list[dict] = []       # [{player_id, name, score, ping}]
-        self.round_idx: int = 0             # track dynamic round columns
+        self.players: list[dict] = []
+        self.round_idx: int = -1
         
-        # refs populated on_mount
-        # general
-
-        
-        # panel refs
         self.leaderboard: DataTable | None = None
         self.log_list: Log | None = None
-        self.extra_cols: list[str] = []  # track dynamic round columns
-        
-        self.quiz_question_widget: QuizQuestionWidget | None = None
-        
-        # chat refs
-        # self.chat_feed: MarkdownChat | None = None
         self.chat_input: Input | None = None
         self.chat_send: Button | None = None
         self.chat_log: RichLogChat | None = None
+        self.quiz_question_widget: QuizQuestionWidget | None = None
         
+        self.username: str = "Unknown"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, name="<!> KnewIt Student UI Main <!>")
@@ -299,13 +265,10 @@ class MainScreen(Screen):
 
             with TabbedContent(initial="chat", id="right-tabs"):
                 with TabPane("Leaderboard", id="leaderboard"):
-                    # DataTable gives both vertical & horizontal scrolling
                     yield DataTable(id="leaderboard-area")
                 with TabPane("Log", id="log"):
-                    # Log widget trims to max_lines and auto-scrolls
                     yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
                 with TabPane("Chat", id="chat"):
-                    # with Vertical(id="chat-panel"):
                     yield RichLogChat(id="chat-log", 
                                     max_lines=MAX_CHAT_MESSAGES, 
                                     markup=True, 
@@ -326,7 +289,9 @@ class MainScreen(Screen):
         self.chat_send = self.query_one("#chat-send", Button)
         self.chat_log   = self.query_one("#chat-log", RichLogChat)
         self.quiz_question_widget = self.query_one("#quiz-question-widget", QuizQuestionWidget)
-        self.username = self.app.session.username
+        
+        if self.app.session:
+            self.username = self.app.session.username
 
         # Setup leaderboard columns
         assert self.leaderboard is not None
@@ -335,62 +300,19 @@ class MainScreen(Screen):
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
         self.theme = THEME          
 
-        session = self.app.session  # or however you're storing it
+        session = self.app.session
         if session and session.pending_events:
             # run them in order
             for msg in list(session.pending_events):
-                # no await here; schedule the async handler
                 asyncio.create_task(session.on_event(msg))
             session.pending_events.clear()
     
-    # ---------- Leaderboard helpers ----------
-
-    def _rebuild_leaderboard(self) -> None:
-        if not self.leaderboard:
-            return
-
-        dt = self.leaderboard
-        dt.clear(columns=True)
-
-        # 1) Define columns
-        base_labels = ["Ping", "Username", "Total"]
-        
-        logger.debug(f"[Student UI] Rebuilding leaderboard for round_idx={self.round_idx}")
-        current_rounds_count = max(0, self.round_idx)
-        round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
-
-        # 2) Add columns and capture keys (order matches labels)
-        keys = dt.add_columns(*base_labels, *round_labels)
-        ping_key, name_key, total_key, *round_keys = keys  # <-- keep these
-
-        # 3) Add rows (use ints where appropriate so sort is numeric)
-        for p in self.players:
-            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
-            name = p["player_id"]
-            total = int(p.get("score", 0))
-            is_muted = p.get("is_muted", False)
-            raw_rounds = p.get("round_scores", [])
-            rounds = [int(v) for v in raw_rounds[:current_rounds_count]]
-            
-            while (len(rounds) < current_rounds_count):
-                rounds.append(0)  # pad unanswered questions with 0
-
-            row = [ping, name, total, *rounds]
-            dt.add_row(*row)
-
-        # 4) Sort by Total (desc). Use the column KEY, not the label string.
-        dt.sort(total_key, reverse=True)
+    # ---------- Logic Hooks (with Logging) ----------
 
     def update_lobby(self, players: list[dict]) -> None:
         """Update the lobby player list."""
         self.players = players
         self._rebuild_leaderboard()
-
-    ## Public API to update the quiz question widget
-
-    def set_quiz_question(self, question: StudentQuestion) -> None:
-        if self.quiz_question_widget:
-            self.quiz_question_widget.show_question(question, start_timer=True)
 
     def student_load_quiz(self, quiz_title, num_questions) -> None:
         # check if quiz question is already going
@@ -399,34 +321,54 @@ class MainScreen(Screen):
             self.quiz_question_widget.end_question()
 
         self.round_idx = 0
-        if self.quiz_question_widget is not None:
+        if self.quiz_question_widget:
             self.quiz_question_widget._render_start_screen(
                 f"Waiting for {num_questions} Question Quiz '{quiz_title}' to start...")
         else:
             logger.warning("[Student UI] Quiz question widget not available to load quiz.")
 
     def next_question(self, sq: StudentQuestion) -> None:
+        """Called when new question received."""
         logger.debug("[Student UI] next_question called.")
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
             self.round_idx = sq.index + 1
             self.set_quiz_question(sq)
+            
+            # [LOGGING] Question Received
+            if hasattr(self.app, "session_logger") and self.app.session_logger:
+                self.app.session_logger.log_question_received(
+                    q_index=sq.index,
+                    question_id=sq.id,
+                    title="Quiz Question",
+                    text=sq.prompt,
+                    options=sq.options
+                )
         else:
-            logger.warning("[Student UI] Quiz question widget not available to start next question.")
+            logger.warning("[Student UI] Quiz widget missing for next_question")
+
+    def set_quiz_question(self, question: StudentQuestion) -> None:
+        if self.quiz_question_widget:
+            self.quiz_question_widget.show_question(question, start_timer=True)
 
     def end_question(self, correct_option: int) -> None:
-        # logger.debug("Ending question from MainScreen.")
-        # shoudl take in the correct answer index and display it
-        # all timing logic will be handled on submission or via orchestrator recording non-submitted answers
+        """Reveal correct answer."""
         if self.quiz_question_widget:
             self.quiz_question_widget.end_question()
             self.quiz_question_widget.show_correct(correct_option)
+            
+            # [LOGGING] Answer Received
+            if hasattr(self.app, "session_logger") and self.app.session_logger:
+                val = LABELS[correct_option] if 0 <= correct_option < len(LABELS) else "?"
+                self.app.session_logger.log_answer_received(
+                    q_index=self.round_idx - 1, # 0-based
+                    correct_index=correct_option,
+                    correct_value=val
+                )
         else:
             logger.warning("[Student UI] Quiz question widget not available to end question.")
     
-    
     def end_quiz(self, leaderboard: list[dict]) -> None:
-        
         logger.debug("[Student UI] end_quiz called.")
         
         if self.quiz_question_widget:
@@ -437,31 +379,29 @@ class MainScreen(Screen):
                 
                 printed_tokens = []
                 theme_vars = self.app.get_css_variables()
+                accent = theme_vars.get("accent", "green")
                 
                 printed_tokens.append(Text("Quiz Finished!\n\n "))
                 
                 tmp = Text("Your Score")
-                tmp.stylize(f"bold underline {theme_vars['accent']}")
+                tmp.stylize(f"bold underline {accent}")
                 printed_tokens.append(tmp)
                 printed_tokens.append(Text.from_markup(f": [b]{my_score}[/b]\n "))
                 
                 tmp = Text("Your Rank")
-                tmp.stylize(f"bold underline {theme_vars['accent']}")
+                tmp.stylize(f"bold underline {accent}")
                 printed_tokens.append(tmp)
                 printed_tokens.append(Text.from_markup(f": [b]{rank}[/b] out of [b]{len(leaderboard)}[/b]\n\n "))
                 
                 tmp = Text("Top Players")
-                tmp.stylize(f"bold underline {theme_vars['accent']}")
+                tmp.stylize(f"bold underline {accent}")
                 printed_tokens.append(tmp)
                 printed_tokens.append(Text(":\n"))
                 
                 for i, p in enumerate(leaderboard[:3]):
                     printed_tokens.append(Text.from_markup(f"{i+1}. [b]{p['name']}[/b] - {p['score']} points\n"))
                 
-                logger.debug(f"[Student UI] Final leaderboard message constructed. {printed_tokens}")
-                
                 msg = Text.assemble(*printed_tokens)
-                # msg = Text("test")
                 self.quiz_question_widget._render_start_screen(msg)
             else:
                 self.quiz_question_widget._render_start_screen("Quiz Finished! No leaderboard data available.")
@@ -469,13 +409,60 @@ class MainScreen(Screen):
             logger.warning("[Student UI] Quiz question widget not available to end quiz.")
             
         self.round_idx = 0
+
+    # ---------- Chat & Leaderboard Internals ----------
+
+    def _rebuild_leaderboard(self) -> None:
+        if not self.leaderboard:
+            return
+
+        dt = self.leaderboard
+        dt.clear(columns=True)
+
+        # 1) Define columns
+        base_labels = ["Ping", "Username", "Total"]
+        current_rounds_count = max(0, self.round_idx)
+        round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
+
+        # 2) Add columns and capture keys (order matches labels)
+        keys = dt.add_columns(*base_labels, *round_labels)
+        ping_key, name_key, total_key, *round_keys = keys
+
+        # 3) Add rows
+        for p in self.players:
+            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else "-"
+            name = p["player_id"]
+            total = int(p.get("score", 0))
             
+            raw_rounds = p.get("round_scores", [])
+            rounds = [int(v) for v in raw_rounds[:current_rounds_count]]
+            
+            while (len(rounds) < current_rounds_count):
+                rounds.append(0)
+
+            row = [ping, name, total, *rounds]
+            dt.add_row(*row)
+
+        # 4) Sort by Total (desc)
+        if len(dt.columns) > 2:
+            dt.sort(total_key, reverse=True)
+
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":
             priv = "sys"
         elif user == self.app.session.host_id:
             priv = "host"
             
+        
+        
+        # [LOGGING] Chat Received/Sent
+        if hasattr(self.app, "session_logger") and self.app.session_logger:
+            if user == self.username:
+                self.app.session_logger.log_chat_submitted(msg)
+            else:
+                is_host = (priv == "host" or priv == "sys")
+                self.app.session_logger.log_chat_received(user, msg, is_host)
+
         if self.chat_log:
             self.chat_log.append_chat(user, msg, priv)
         else:
@@ -486,19 +473,6 @@ class MainScreen(Screen):
             self.chat_log.append_rainbow_chat(user, msg)
         else:
             logger.warning(f"[Student UI] Chat log not available. Message from {user}: {msg}")
-
-    # def action_start_quiz(self) -> None:
-    #     self.student_load_quiz()
-
-    # def action_next_question(self) -> None:
-    #     self.next_question()
-
-    # def action_end_question(self) -> None:
-    #     self.end_question()
-    
-    # def action_end_quiz(self) -> None:
-    #     self.end_quiz()
-
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:
             self._send_chat_from_input()
@@ -507,6 +481,11 @@ class MainScreen(Screen):
         if e.input.id == "chat-input":
             self._send_chat_from_input()
     
+    def _send_chat_from_input(self) -> None:
+        if self.chat_input and (txt := self.chat_input.value.strip()):
+            self.chat_input.value = ""
+            asyncio.create_task(self.app.session.send_chat(txt))
+
     @work
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = (event.button.id or "")
@@ -516,13 +495,21 @@ class MainScreen(Screen):
         elif bid.startswith("option-"):
             if self.quiz_question_widget is None:
                 return
+            
+            # [LOGGING] Answer Submitted
+            if hasattr(self.app, "session_logger") and self.app.session_logger:
+                # Map button ID to index
+                idx_map = {"option-a": 0, "option-b": 1, "option-c": 2, "option-d": 3}
+                idx = idx_map.get(bid)
+                if idx is not None:
+                    val = LABELS[idx] if idx < len(LABELS) else "?"
+                    self.app.session_logger.log_answer_submitted(
+                        q_index=self.round_idx - 1, # 0-based
+                        answer_index=idx,
+                        answer_value=val
+                    )
+
             await self.app.session.send_answer(self.quiz_question_widget)
-
-
-    def _send_chat_from_input(self) -> None:
-        if self.chat_input and (txt := self.chat_input.value.strip()):
-            self.chat_input.value = ""
-            asyncio.create_task(self.app.session.send_chat(txt))
 
 
 class LoginScreen(Screen):
@@ -533,7 +520,6 @@ class LoginScreen(Screen):
         align: center middle;
         content-align: center middle;
     }
-    
     
     BorderedInputContainer, BorderedTwoInputContainer, BorderedInputButtonContainer {
         border: round $accent;
@@ -551,7 +537,6 @@ class LoginScreen(Screen):
         margin-top: 2;
         max-width: 60;
     }
-    
     """
     
     BINDINGS = [
@@ -561,12 +546,11 @@ class LoginScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical(id="login-container"):
-            # yield Static("* Server Error Message Placeholder *", classes=[])
-            yield BorderedInputContainer(border_title="Session ID",
-                                            input_placeholder="demo",
+            yield BorderedInputContainer(border_title="Session ID", 
+                                            input_placeholder="demo", 
                                             id="session-id")
-            yield BorderedInputContainer(border_title="Session Password",
-                                         input_placeholder="Leave blank for no password",
+            yield BorderedInputContainer(border_title="Session Password", 
+                                         input_placeholder="Leave blank for no password", 
                                          id="pw-input")
             yield BorderedTwoInputContainer(border_title="Server IP",
                                             input1_placeholder="0.0.0.0 or kauschcarz.ddns.net",
@@ -580,9 +564,7 @@ class LoginScreen(Screen):
             yield Static("* Server Error Message Placeholder *", classes="error-message hidden")
         yield Footer()
         
-        # --- unify both triggers on one action ---
     async def action_attempt_login(self) -> None:
-        # gather input values
         vals = self._student_get_values()
         logger.debug("[Student Login UI] Attempting login with values:")
         for k,v in vals.items():
@@ -594,16 +576,32 @@ class LoginScreen(Screen):
             self._show_error(msg)
             return
         
-        # try to connect to server
+        # [LOGGING] Initialize Session Logger
+        try:
+            base_dir = Path.cwd()
+            logger_obj = SessionLogger(base_dir=base_dir)
+            logger_obj.log_session_start(
+                session_id=vals["session_id"],
+                client_id=vals["username"],
+                role="student",
+                server_url=f"{vals['server_ip']}:{vals['server_port']}",
+                username=vals["username"],
+            )
+            self.app.session_logger = logger_obj
+            logger.info(f"Session logger initialized at {logger_obj.path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to init session logger: {e}")
+
         self.query_one(".error-message").add_class("hidden")
         success, msg = await self._connect_to_server(vals)
         if not success:
             self.title = "Failed to connect to server."
             self._show_error(msg)
-            logger.debug(f"[Student Login UI] Login failed, staying on login screen: {msg}")
+            logger.debug(f"Login failed, staying on login screen: {msg}")
             return
         if success:
-            logger.debug("[Student Login UI] join request sent, waiting for joined message...")
+            logger.debug("join request sent, waiting for joined message...")
             self.title = "Connected, waiting to join session..."
 
     async def _connect_to_server(self, vals: dict) -> tuple[bool, str]:
@@ -631,7 +629,7 @@ class LoginScreen(Screen):
             if not await self.app.session.start():
                 return False, "Failed to establish connection with server."
         except TimeoutError as e:
-            logger.error(f"[Student Login UI] Timeout while connecting to server: {e}")
+            logger.error(f"Timeout while connecting to server: {e}")
             return False, "Connection timed out."
 
         logger.debug("[Student Login UI] Connection established, sending join message...")
@@ -639,15 +637,12 @@ class LoginScreen(Screen):
         return True, ""
         
     async def on_button_pressed(self, event: Button.Pressed) -> None:
-        
         if event.button.id == "username-inputs-button":
-            logger.debug("[Student Login UI] Login button pressed.")
             await self.action_attempt_login()        
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         await self.action_attempt_login()
 
-    # --- helpers ---
     def _student_get_values(self) -> dict:
         
         vals = {
@@ -666,13 +661,11 @@ class LoginScreen(Screen):
     def _show_error(self, msg: str) -> None:
         logger.debug("Showing login error: " + msg)
         err = self.query_one(".error-message", Static)
-        err.update(f"[b]* {msg} *[/b]")   # simple emphasis
+        err.update(f"[b]* {msg} *[/b]")
         self.query_one(".error-message").remove_class("hidden")
-        # you can also add a CSS class for styling/animation if you like
 
 
 class StudentUIApp(App):
-
 
     CSS = """
     Screen {
@@ -690,7 +683,6 @@ class StudentUIApp(App):
     MODES = {
         "login": LoginScreen,
         "main": MainScreen,
-        # "quiz_selector": QuizSelector
     }
     
     SCREENS = {
@@ -700,52 +692,48 @@ class StudentUIApp(App):
     
     def __init__(self) -> None:
         super().__init__()
-        # self.players: List[dict] = []
-        self.player_list_container: VerticalScroll | None = None
-        # self.login_info: dict = {}
         self.session: StudentInterface | None = None
-        
-        self.quiz: Quiz | None = None # remove after debugging UI
-
-
-    # Bindings / actions
+        self.session_logger: SessionLogger | None = None
+        self.quiz: Quiz | None = None
 
     def action_toggle_dark(self) -> None:
         self.theme = THEME if self.theme != THEME else "textual-dark"
 
-    async def on_mount(self, event: events.Mount) -> None:  # type: ignore[override]
+    async def on_mount(self, event: events.Mount) -> None:
         self.theme = THEME
         
-        # sample quiz, remove after debugging UI
-        # self.quiz = Quiz.load_from_file("quizzes/abcd1234.json")
-        # logger.debug(f"[Student Login UI] Loaded sample quiz: {self.quiz}")
-        
+        # [RECOVERY] Check for crashed sessions
+        try:
+            result = load_latest_incomplete_history(base_dir=Path.cwd())
+            if result:
+                history, path = result
+                logger.info(f"Found incomplete session log: {path}")
+        except Exception as e:
+            logger.error(f"Error checking logs: {e}")
+
         self.push_screen("login")
         # self.switch_mode("main")
         
     async def on_mode_changed(self, event: App.ModeChanged) -> None:
         logger.debug(f"Switched to mode: {event.mode}")
 
+    async def on_shutdown(self, event: events.Shutdown) -> None:
+        # [LOGGING] Close log
+        if self.session_logger:
+            self.session_logger.log_session_end(reason="normal-exit", graceful=True)
+
 if __name__ == "__main__":
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
-    
-    # 1. Set Root logger to INFO. 
-    # This automatically silences DEBUG noise from Textual, Websockets, Asyncio, etc.
+
     logging.basicConfig(
-        filename=log_dir / 'student.log',  # (or student.log)
-        level=logging.INFO,             # <--- THE CHANGE
+        filename=log_dir / 'student.log', 
+        level=logging.INFO, 
         format='%(asctime)s %(levelname)s [STUDENT] %(message)s',
         filemode='w',
         force=True
     )
-    
-    # 2. Explicitly enable DEBUG for YOUR logger only
-    # Since common.py defines logger = logging.getLogger("knewit"), we enable that.
     logging.getLogger("knewit").setLevel(logging.DEBUG)
+    logging.info("Student UI starting up...")
     
-    # If host_ui.py or other local modules use __name__, enable them too if needed
-    # logging.getLogger("client").setLevel(logging.DEBUG) 
-
-    logging.info("Host UI starting up...")
     StudentUIApp().run()
