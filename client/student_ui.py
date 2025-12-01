@@ -16,7 +16,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, Button, Log
 from textual.message import Message
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, Container
 from textual.app import App, ComposeResult
 from textual import events, work
 from rich.text import Text
@@ -47,20 +47,26 @@ class MainScreen(Screen):
     # --- RESTORED ORIGINAL CSS ---
     CSS = """
     #main-container { 
+        layout: grid;
+        grid-size: 2 2;
+        grid-rows: 7fr 3fr;
+        grid-columns: 6fr 4fr;
+        grid-gutter: 0 0;
         height: 100%; 
         width: 100%;
         margin: 0;
         padding: 0;
         # background: $background;
     }
-    #left-column { 
-        width: 5fr; 
-        height: 1fr; 
-        padding: 0; 
-        margin: 1 1 1 1;
-        outline: tall $panel;
-        align: center middle;
-    }
+    # #left-column { 
+    #     background: $background;
+    #     width: 100%; 
+    #     height: 100%; 
+    #     padding: 0; 
+    #     # margin: 1 1 1 1;
+    #     outline: round green;
+    #     align: center middle;
+    # }
 
     #quiz-question-grid {
         padding: 1;
@@ -73,10 +79,18 @@ class MainScreen(Screen):
         # border: solid red;
         height: 100%;
         width: 100%;
-        grid-gutter: 2 1;
+        grid-gutter: 0 1;
         background: $background;
         margin: 0;
         padding: 0;
+    }
+
+    #quiz-question-widget {
+        
+        height: 100%;
+        width: 100%;
+        border: round $accent;
+        background: $background;
     }
 
     #question-log {
@@ -85,19 +99,20 @@ class MainScreen(Screen):
         height: 100%;
         width: 1fr;
         min-height: 4;
-        padding-left: 5;
-        padding-top: 3;
+        padding-left: 2;
+        padding-top: 1;
         background: $background;
-        border: solid $accent;
+        border: round $accent;
         overflow: hidden;
     }
 
     #quiz-question-grid Button {
         width: 100%;
-        height: 100%;
+        # height: 100%;
         background: $background;
         align: center bottom;
         outline: round $accent;
+        height: 10;
         min-width: 5;
     }
 
@@ -145,17 +160,19 @@ class MainScreen(Screen):
         width: 4fr;
         height: 100%;
         # border: tall $panel;
-        margin: 0 0;
-        padding: 0 0;
+        # margin: 0 0;
+        padding: 1 1;
         box-sizing: border-box;
-        # border: tall red;
+        outline: round $accent;
     }
 
-    #leaderboard,
-    #log,
-    #chat {
+    #leaderboard {
         height: 1fr;
         width: 1fr;
+        padding: 2;
+        border: round $accent;
+        border-title-align: center;
+        background: $background;
     }
 
     #chat-list {
@@ -164,38 +181,54 @@ class MainScreen(Screen):
     }
     
     #chat-log { 
+        background: $background;
         height: 7fr;
-        width: 1fr;
+        width: 100%;
         # overflow-x: hidden;
     }
-    #chat-panel {
-        height: 7fr;
-        width: 1fr;
+    #chat {
+        background: $background;
+        # height: 7fr;
+        column-span: 2;
+        width: 100%;
         layout: vertical;
-        padding: 1;
+        padding: 0;
+        margin: 0;
+        border: round $accent;
+        border-title-align: center;
     }
 
     /* input row stays visible and un-clipped */
     #chat-input-row {
+        background: $background;
         box-sizing: border-box;
-        layout: horizontal;
-        height: 1fr;
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 8fr 1fr;
+        height: 3;
         min-height: 3;
         align: center middle;
     }
 
     #chat-input {
-        width: 1fr;
-        height: 1fr;
+        # width: 1fr;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        padding-left: 2;
+        background: $background;
         box-sizing: border-box;
-        # outline: solid yellow;
+        outline: round $primary;
     }
 
     #chat-send {
-        width: 12;
-        height: 1fr;
-        margin-left: 1;
+        # width: 8;
+        height: 100%;
+        # margin-left: 1;
         box-sizing: border-box;
+        border: double $primary;
+        background: $background;
+        outline: round $primary;
     }
 
     
@@ -228,6 +261,7 @@ class MainScreen(Screen):
         content-align: center middle;
         width: 100%;
         height: 1fr;
+        background: $background;
     }
     
     .hidden {
@@ -249,7 +283,7 @@ class MainScreen(Screen):
         self.round_idx: int = -1
         
         self.leaderboard: DataTable | None = None
-        self.log_list: Log | None = None
+        # self.log_list: Log | None = None
         self.chat_input: Input | None = None
         self.chat_send: Button | None = None
         self.chat_log: RichLogChat | None = None
@@ -259,32 +293,32 @@ class MainScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, name="<!> KnewIt Student UI Main <!>")
-        with Horizontal(id="main-container"):
-            with Vertical(id="left-column"):
-                yield QuizQuestionWidget(id="quiz-question-widget")
+        with Container(id="main-container"):
+            # with Vertical(id="left-column"):
+            yield QuizQuestionWidget(id="quiz-question-widget")
 
-            with TabbedContent(initial="chat", id="right-tabs"):
-                with TabPane("Leaderboard", id="leaderboard"):
-                    yield DataTable(id="leaderboard-area")
-                with TabPane("Log", id="log"):
-                    yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
-                with TabPane("Chat", id="chat"):
-                    yield RichLogChat(id="chat-log", 
-                                    max_lines=MAX_CHAT_MESSAGES, 
-                                    markup=True, 
-                                    auto_scroll=True, 
-                                    highlight=False, 
-                                    wrap=True,
-                                    min_width=20)
-                    with Horizontal(id="chat-input-row"):
-                        yield Input(placeholder="Type message here... (Enter to send)", id="chat-input")
-                        yield Button("Send", id="chat-send", variant="primary")
+            # with TabbedContent(initial="chat", id="right-tabs"):
+            with Container(id="leaderboard"):
+                yield DataTable(id="leaderboard-area")
+                # with TabPane("Log", id="log"):
+                #     yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
+            with Container(id="chat"):
+                yield RichLogChat(id="chat-log", 
+                                max_lines=MAX_CHAT_MESSAGES, 
+                                markup=True, 
+                                auto_scroll=True, 
+                                highlight=False, 
+                                wrap=True,
+                                min_width=20)
+                with Horizontal(id="chat-input-row"):
+                    yield Input(placeholder="Type message here... (Enter to send)", id="chat-input")
+                    yield Button("Send", id="chat-send", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
         # cache refs
         self.leaderboard = self.query_one("#leaderboard-area", DataTable)
-        self.log_list = self.query_one("#log_area", Log)
+        # self.log_list = self.query_one("#log_area", Log)
         self.chat_input = self.query_one("#chat-input", Input)
         self.chat_send = self.query_one("#chat-send", Button)
         self.chat_log   = self.query_one("#chat-log", RichLogChat)
@@ -298,7 +332,12 @@ class MainScreen(Screen):
         self.leaderboard.cursor_type = "row"   # nicer selection
         self.leaderboard.add_columns("Ping", "Name", "Total")
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
-        self.theme = THEME          
+        self.theme = THEME     
+        
+        self.chat_container = self.query_one("#chat", Container)
+        self.chat_container.border_title = "Chat"
+        self.leaderboard_container = self.query_one("#leaderboard", Container)
+        self.leaderboard_container.border_title = "Leaderboard"
 
         session = self.app.session
         if session and session.pending_events:
@@ -712,7 +751,7 @@ class StudentUIApp(App):
             logger.error(f"Error checking logs: {e}")
 
         self.push_screen("login")
-        # self.switch_mode("main")
+        # self.push_screen("main")
         
     async def on_mode_changed(self, event: App.ModeChanged) -> None:
         logger.debug(f"Switched to mode: {event.mode}")

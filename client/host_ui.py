@@ -57,6 +57,10 @@ class MainScreen(Screen):
 
     CSS = """
     #main-container { 
+        layout: grid;
+        grid-size: 2 2;
+        grid-rows: 6fr 4fr;
+        grid-columns: 1fr 1fr;
         height: 100%; 
         width: 100%;
         margin: 0;
@@ -64,6 +68,7 @@ class MainScreen(Screen):
         # background: $background;
     }
     #left-column { 
+        background: $background;
         width: 6fr; 
         height: 1fr; 
         padding: 0; 
@@ -75,7 +80,7 @@ class MainScreen(Screen):
     #quiz-preview { 
         height: 4fr; 
         width: 100%;
-        # background: red;
+        background: $background;
         content-align: center top;
     }
     
@@ -83,7 +88,7 @@ class MainScreen(Screen):
         height: 3fr;
         min-height: 10;
         width: 100%;
-        # background: green; 
+        background: $background; 
     }
     
     #graphs-area PlotextPlot {
@@ -96,8 +101,10 @@ class MainScreen(Screen):
         layout: grid;
         grid-gutter: 0 2;
         # margin: 0 2 0 2;
-        background: $surface;
+        background: $background;
         min-height: 3;
+        padding-left: 1;
+        padding-right: 1;
     }
     
     #load-quiz {
@@ -157,21 +164,27 @@ class MainScreen(Screen):
     }
 
     #timer-widget {
-        height: 2;
+        height: 3;
+        layout: grid;
+        grid-size: 1;
+        grid-columns: 1fr;
+        grid-gutter: 0 0;
         margin: 0;
         padding: 0;
-        # content-align: right middle;
-        # align: right middle;
+        content-align: center middle;
+        align: center bottom;
+        border: round $accent;
+        border-title-align: center;
     }
     
     #timer-label
     {
-        content-align: right middle;
-        width: 5fr;
+        content-align: right bottom;
+        width: 100%;
     }
     #timer-display {
-        content-align: center middle;
-        width: 1fr;
+        content-align: center bottom;
+        width: 100%;
     }
     
 
@@ -179,16 +192,18 @@ class MainScreen(Screen):
         width: 4fr;
         height: 100%;
         # border: tall $panel;
-        margin: 0 0;
-        padding: 0 0;
+        # margin: 1 1;
+        padding: 2;
         box-sizing: border-box;
-        # border: tall red;
+        border: round $accent;
+        background: $background;
+        border-title-align: center;
     }
 
     #leaderboard,
     #user-controls,
     #log,
-    #chat {
+    #stats,{
         height: 1fr;
         width: 1fr;
     }
@@ -199,38 +214,54 @@ class MainScreen(Screen):
     }
     
     #chat-log { 
+        background: $background;
         height: 7fr;
-        width: 1fr;
+        width: 100%;
         # overflow-x: hidden;
     }
     #chat-panel {
-        height: 7fr;
-        width: 1fr;
+        background: $background;
+        # height: 7fr;
+        column-span: 2;
+        width: 100%;
         layout: vertical;
-        padding: 1;
+        padding: 0;
+        margin: 0;
+        border: round $accent;
+        border-title-align: center;
     }
 
     /* input row stays visible and un-clipped */
     #chat-input-row {
+        background: $background;
         box-sizing: border-box;
-        layout: horizontal;
-        height: 1fr;
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 8fr 1fr;
+        height: 3;
         min-height: 3;
         align: center middle;
     }
 
     #chat-input {
-        width: 1fr;
-        height: 1fr;
+        # width: 1fr;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        padding-left: 2;
+        background: $background;
         box-sizing: border-box;
-        # outline: solid yellow;
+        outline: round $primary;
     }
 
     #chat-send {
-        width: 12;
-        height: 1fr;
-        margin-left: 1;
+        # width: 8;
+        height: 100%;
+        # margin-left: 1;
         box-sizing: border-box;
+        border: double $primary;
+        background: $background;
+        outline: round $primary;
     }
 
     
@@ -264,6 +295,7 @@ class MainScreen(Screen):
         content-align: center middle;
         width: 100%;
         height: 1fr;
+        background: $background;
     }
     
     .hidden {
@@ -303,7 +335,7 @@ class MainScreen(Screen):
         # panel refs
         self.leaderboard: DataTable | None = None
         self.user_controls: ListView | None = None
-        self.log_list: Log | None = None
+        # self.log_list: Log | None = None
         self.extra_cols: list[str] = []  # track dynamic round columns
         self.timer: TimeDisplay | None = None
         self.hist_plot: AnswerHistogramPlot | None = None
@@ -332,10 +364,10 @@ class MainScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True, name="<!> KnewIt Host UI Main <!>")
-        with Horizontal(id="main-container"):
+        with Container(id="main-container"):
             with Vertical(id="left-column"):
                 with HorizontalGroup(id="timer-widget"):
-                    yield Static("Time Remaining", id="timer-label")
+                    # yield Static("Time Remaining", id="timer-label")
                     yield TimeDisplay(id="timer-display")
                 with Vertical(id="quiz-preview-container"):
                     yield QuizPreviewLog(id="quiz-preview")
@@ -355,39 +387,43 @@ class MainScreen(Screen):
                     # both state2 and 3 but want it at the end of the row
                     yield Button("Stop Quiz", id="stop-quiz", classes="hidden ")
                 
-                with Horizontal(id="graphs-area"):
-                    yield AnswerHistogramPlot(id="answers-plot")
-                    yield PercentCorrectPlot(id="percent-plot")
 
-            with TabbedContent(initial="chat", id="right-tabs"):
+
+            with TabbedContent(initial="leaderboard", id="right-tabs"):
                 with TabPane("Leaderboard", id="leaderboard"):
                     # DataTable gives both vertical & horizontal scrolling
                     yield DataTable(id="leaderboard-area")
                 with TabPane("User Controls", id="user-controls"):
                     # A scrollable list of rows; each row holds name + buttons
                     yield ListView(id="user-controls-area")
-                with TabPane("Log", id="log"):
-                    # Log widget trims to max_lines and auto-scrolls
-                    yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
-                with TabPane("Chat", id="chat"):
-                    # with Vertical(id="chat-panel"):
-                    yield RichLogChat(id="chat-log", 
-                                    max_lines=MAX_CHAT_MESSAGES, 
-                                    markup=True, 
-                                    auto_scroll=True, 
-                                    highlight=False, 
-                                    wrap=True,
-                                    min_width=20)
-                    with Horizontal(id="chat-input-row"):
-                        yield Input(placeholder="Type message here... (Enter to send)", id="chat-input")
-                        yield Button("Send", id="chat-send", variant="primary")
+                # with TabPane("Log", id="log"):
+                #     # Log widget trims to max_lines and auto-scrolls
+                #     yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
+                    
+                with TabPane("Stats", id="stats"):
+                    with Horizontal(id="graphs-area"):
+                        yield AnswerHistogramPlot(id="answers-plot")
+                        yield PercentCorrectPlot(id="percent-plot")    
+                    
+                # with TabPane("Chat", id="chat"):
+            with Vertical(id="chat-panel", ):
+                yield RichLogChat(id="chat-log", 
+                                max_lines=MAX_CHAT_MESSAGES, 
+                                markup=True, 
+                                auto_scroll=True, 
+                                highlight=False, 
+                                wrap=True,
+                                min_width=20)
+                with Container(id="chat-input-row"):
+                    yield Input(placeholder="Type message here... (Enter to send)", id="chat-input")
+                    yield Button("Send", id="chat-send", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
         # cache refs
         self.leaderboard = self.query_one("#leaderboard-area", DataTable)
         self.user_controls = self.query_one("#user-controls-area", ListView)
-        self.log_list = self.query_one("#log_area", Log)
+        # self.log_list = self.query_one("#log_area", Log)
         self.chat_input = self.query_one("#chat-input", Input)
         self.chat_send = self.query_one("#chat-send", Button)
         self.chat_log   = self.query_one("#chat-log", RichLogChat)
@@ -411,8 +447,16 @@ class MainScreen(Screen):
         self.leaderboard.cursor_type = "row"   # nicer selection
         self.leaderboard.add_columns("Ping", "Name", "Total")
         self.leaderboard.fixed_columns = 3  # keep base columns visible when scrolling
-        self.theme = THEME          
-
+        self.theme = THEME   
+        
+        # chat border title
+        self.chat_panel = self.query_one("#chat-panel", Vertical)
+        self.chat_panel.border_title = "Chat"
+        self.timer_widget = self.query_one("#timer-widget", HorizontalGroup)
+        self.timer_widget.border_title = "Time Remaining"
+        self.tabbs = self.query_one("#right-tabs", TabbedContent)
+        self.tabbs.border_title = "Controls"
+        
         session = self.app.session  # or however you're storing it
         if session and session.pending_events:
             logger.debug(f"Processing {len(session.pending_events)} pending events on mount.")
