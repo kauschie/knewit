@@ -15,7 +15,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from client.common import logger
 from server.quiz_types import Quiz, Question, StudentQuestion
 
-from knewit.client.widgets.timedisplay import TimeDisplay
+from client.widgets.timedisplay import TimeDisplay
 
 
 class QuizQuestionWidget(Widget):

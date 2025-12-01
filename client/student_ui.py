@@ -40,10 +40,10 @@ from rich.highlighter import Highlighter
 
 
 from server.quiz_types import Quiz, StudentQuestion
-from knewit.client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
-from utils import _student_validate
-from knewit.client.widgets.chat import RichLogChat
-from knewit.client.widgets.quiz_question_widget import QuizQuestionWidget
+from client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
+from client.utils import _student_validate
+from client.widgets.chat import RichLogChat
+from client.widgets.quiz_question_widget import QuizQuestionWidget
 from client.interface import StudentInterface
 from client.common import logger
 
