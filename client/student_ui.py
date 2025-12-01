@@ -469,7 +469,7 @@ class MainScreen(Screen):
 
         # 3) Add rows
         for p in self.players:
-            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else "-"
+            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
             total = int(p.get("score", 0))
             
@@ -512,6 +512,7 @@ class MainScreen(Screen):
             self.chat_log.append_rainbow_chat(user, msg)
         else:
             logger.warning(f"[Student UI] Chat log not available. Message from {user}: {msg}")
+            
     def action_send_chat(self) -> None:
         if self.chat_input and self.chat_input.has_focus:
             self._send_chat_from_input()
