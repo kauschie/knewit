@@ -59,8 +59,8 @@ class MainScreen(Screen):
     #main-container { 
         layout: grid;
         grid-size: 2 2;
-        grid-rows: 6fr 4fr;
-        grid-columns: 1fr 1fr;
+        grid-rows: 7fr 3fr;
+        grid-columns: 6fr 4fr;
         height: 100%; 
         width: 100%;
         margin: 0;
@@ -84,14 +84,14 @@ class MainScreen(Screen):
         content-align: center top;
     }
     
-    #graphs-area { 
-        height: 3fr;
+    .graphs-area { 
+        height: 100%;
         min-height: 10;
         width: 100%;
         background: $background; 
     }
     
-    #graphs-area PlotextPlot {
+    .graphs-area PlotextPlot {
         width:1fr;
         height: 1fr;
     }
@@ -203,7 +203,8 @@ class MainScreen(Screen):
     #leaderboard,
     #user-controls,
     #log,
-    #stats,{
+    #stats,
+    #percent-correct,{
         height: 1fr;
         width: 1fr;
     }
@@ -312,13 +313,7 @@ class MainScreen(Screen):
     """
 
     BINDINGS = [
-        # ("a", "add_player", "Add player"),
-        # ("r", "remove_player", "Remove player"),
-        ("n", "next_round", "New round column"),  # demo: add a per-round column
-        ("c", "demo_chat", "Append demo chat line"),   # demo: add chat text
         ("enter", "send_chat", "Send chat input"),
-        ("e", "end_question", "End question"),  # demo: end question
-        ("s", "stop_quiz", "Stop quiz"),  # demo: end quiz
     ]
 
     def __init__(self) -> None:
@@ -400,10 +395,12 @@ class MainScreen(Screen):
                 #     # Log widget trims to max_lines and auto-scrolls
                 #     yield Log(id="log_area", max_lines=50, highlight=False, auto_scroll=True)
                     
-                with TabPane("Stats", id="stats"):
-                    with Horizontal(id="graphs-area"):
+                with TabPane("Histogram", id="stats"):
+                    with Horizontal(classes="graphs-area"):
                         yield AnswerHistogramPlot(id="answers-plot")
-                        yield PercentCorrectPlot(id="percent-plot")    
+                with TabPane("Percent Correct", id="percent-correct"):
+                    with Horizontal(classes="graphs-area"):
+                        yield PercentCorrectPlot(id="percent-plot")  
                     
                 # with TabPane("Chat", id="chat"):
             with Vertical(id="chat-panel", ):
