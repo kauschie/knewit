@@ -483,20 +483,21 @@ class MainScreen(Screen):
         dt.clear(columns=True)
 
         # 1) Define columns
-        base_labels = ["Ping", "Name", "Total", "Muted"]
+        base_labels = ["Ping", "Name", "Score", "Correct", "Muted"]
         # ensure round_idx is at least 0 to prevent range errors
         current_rounds_count = max(0, self.round_idx)
         round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
-        ping_key, name_key, total_key, muted_key,*round_keys = keys  # <-- keep these
+        ping_key, name_key, total_key, correct_key, muted_key,*round_keys = keys  # <-- keep these
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
             ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
-            total = int(p.get("score", 0))
+            score = f"{float(p.get("score", 0)):.1f}" 
+            correct = int(p.get("correct_count", 0))
             is_muted = "🔇" if p.get("is_muted", False) else "🔊"
             
     
@@ -509,7 +510,7 @@ class MainScreen(Screen):
                 # pad unanswered questions with 0
                 rounds.append(0)
 
-            row = [ping, name, total, is_muted, *rounds]
+            row = [ping, name, score, correct, is_muted, *rounds]
             dt.add_row(*row)
 
         # 4) Sort by Total (desc). Use the column KEY, not the label string.
@@ -719,7 +720,7 @@ class MainScreen(Screen):
             if leaderboard:
                 for i, p in enumerate(leaderboard[:5]):  # Show top 5 for host
                     rank_style = "bold yellow" if i == 0 else "bold"
-                    printed_tokens.append(Text.from_markup(f"{i+1}. [{rank_style}]{p['name']}[/] - {p['score']} points\n"))
+                    printed_tokens.append(Text.from_markup(f"{i+1}. [{rank_style}]{p['name']}[/] - {float(p['score']):.1f} points\n"))
             else:
                 printed_tokens.append(Text("No player data available."))
 
