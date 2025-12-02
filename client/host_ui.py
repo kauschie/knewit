@@ -481,21 +481,21 @@ class MainScreen(Screen):
         dt.clear(columns=True)
 
         # 1) Define columns
-        base_labels = ["Ping", "Name", "Total"]
+        base_labels = ["Ping", "Name", "Total", "Muted"]
         # ensure round_idx is at least 0 to prevent range errors
         current_rounds_count = max(0, self.round_idx)
         round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
-        ping_key, name_key, total_key, *round_keys = keys  # <-- keep these
+        ping_key, name_key, total_key, muted_key,*round_keys = keys  # <-- keep these
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
             ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
             total = int(p.get("score", 0))
-            is_muted = p.get("is_muted", False)
+            is_muted = "🔇" if p.get("is_muted", False) else "🔊"
             
     
             # only take as many scores as we have columns for
@@ -507,7 +507,7 @@ class MainScreen(Screen):
                 # pad unanswered questions with 0
                 rounds.append(0)
 
-            row = [ping, name, total, *rounds]
+            row = [ping, name, total, is_muted, *rounds]
             dt.add_row(*row)
 
         # 4) Sort by Total (desc). Use the column KEY, not the label string.
@@ -1119,6 +1119,7 @@ class HostUIApp(App):
         ("tab", "focus_next", "Focus next"),
         ("shift+tab", "focus_previous", "Focus previous"),
         ("q", "quit", "Quit"),
+        ("ctrl+z", "suspend_process", "Suspend"),
     ]
 
     MODES = {

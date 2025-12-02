@@ -483,7 +483,7 @@ class QuizCreator(ModalScreen):
             
     def write_quiz_to_file(self, quiz_data: dict) -> None:
         """Write the quiz data to a JSON file."""
-        quizzes_dir = Path(__file__).parent.parent / "quizzes"
+        quizzes_dir = Path(__file__).parent.parent.parent / "quizzes"
         quizzes_dir.mkdir(exist_ok=True)
 
         if self.quiz_path is not None:

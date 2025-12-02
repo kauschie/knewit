@@ -367,10 +367,17 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         sq.total = len(session.quiz.questions)
                         sq.timer = 10 # get from question or orchestrator later
 
+                        # mute all players at start of question
+                        for p in session.players.values():
+                            p.is_muted = True
+                        session.players[session.host_id].is_muted = False  # unmute host
+
                         await broadcast(session, {
                             "type": "question.next",
                             "question": sq.to_dict()
                         })
+                        
+                        await broadcast_lobby(session)
                     else:
                         await broadcast(session, {
                             "type": "quiz.finished",
@@ -399,10 +406,17 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     sq.total = len(session.quiz.questions)
                     sq.timer = 10 # get from question or orchestrator later
 
+                    # mute all players at start of question
+                    for p in session.players.values():
+                        p.is_muted = True
+                    session.players[session.host_id].is_muted = False  # unmute host
+
                     await broadcast(session, {
                         "type": "question.next",
                         "question": sq.to_dict()
                     })
+                    
+                    await broadcast_lobby(session)
                 else:
                     await broadcast(session, {
                         "type": "quiz.finished",
@@ -437,6 +451,10 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                 await printlog(f"[quiz] ended question {session.current_question_idx} for session={session.id}, correct_idx={correct_idx}, final_counts={final_counts}")
                 
                 # broadcast results
+                
+                for p in session.players.values():
+                    p.is_muted = False  # unmute all players at end of question
+                
                 await broadcast(session, {
                     "type": "question.results",
                     "correct_idx": correct_idx,
