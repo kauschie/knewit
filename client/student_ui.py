@@ -434,6 +434,7 @@ class MainScreen(Screen):
                     my_score = 0
                     rank = "-"
                 
+                score_str = f"{my_score:.1f}" if isinstance(my_score, float) else str(my_score)
                 
                 printed_tokens = []
                 theme_vars = self.app.get_css_variables()
@@ -444,7 +445,7 @@ class MainScreen(Screen):
                 tmp = Text("Your Score")
                 tmp.stylize(f"bold underline {accent}")
                 printed_tokens.append(tmp)
-                printed_tokens.append(Text.from_markup(f": [b]{my_score}[/b]\n "))
+                printed_tokens.append(Text.from_markup(f": [b]{score_str}[/b]\n "))
                 
                 tmp = Text("Your Rank")
                 tmp.stylize(f"bold underline {accent}")
@@ -457,7 +458,7 @@ class MainScreen(Screen):
                 printed_tokens.append(Text(":\n"))
                 
                 for i, p in enumerate(leaderboard[:3]):
-                    printed_tokens.append(Text.from_markup(f"{i+1}. [b]{p['name']}[/b] - {p['score']} points\n"))
+                    printed_tokens.append(Text.from_markup(f"{i+1}. [b]{p['name']}[/b] - {float(p['score']):.1f} points\n"))
                 
                 msg = Text.assemble(*printed_tokens)
                 self.quiz_question_widget._render_start_screen(msg)
@@ -478,19 +479,20 @@ class MainScreen(Screen):
         dt.clear(columns=True)
 
         # 1) Define columns
-        base_labels = ["Ping", "Username", "Total", "Muted"]
+        base_labels = ["Ping", "Username", "Score", "Correct", "Muted"]
         current_rounds_count = max(0, self.round_idx)
         round_labels = [f"R{i}" for i in range(1, current_rounds_count + 1)]
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
-        ping_key, name_key, total_key, muted_key, *round_keys = keys
+        ping_key, name_key, score_key, correct_key, muted_key, *round_keys = keys
 
         # 3) Add rows
         for p in self.players:
             ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
             name = p["player_id"]
-            total = int(p.get("score", 0))
+            score = f"{float(p.get("score", 0)):.1f}" 
+            correct = int(p.get("correct_count", 0))
             is_muted = "🔇" if p.get("is_muted", False) else "🔊"
             
             raw_rounds = p.get("round_scores", [])
@@ -499,12 +501,12 @@ class MainScreen(Screen):
             while (len(rounds) < current_rounds_count):
                 rounds.append(0)
 
-            row = [ping, name, total, is_muted, *rounds]
+            row = [ping, name, score, correct, is_muted, *rounds]
             dt.add_row(*row)
 
-        # 4) Sort by Total (desc)
+        # 4) Sort by score (desc)
         if len(dt.columns) > 2:
-            dt.sort(total_key, reverse=True)
+            dt.sort(score_key, reverse=True)
 
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":
