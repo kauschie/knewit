@@ -7,6 +7,7 @@ import asyncio
 import sys
 from pathlib import Path
 import logging
+import argparse
 
 # Add parent folders to path if running directly
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -628,17 +629,28 @@ class LoginScreen(Screen):
             yield Static("* Server Error Message Placeholder *", classes="error-message hidden")
         yield Footer()
         
-    async def action_attempt_login(self) -> None:
-        vals = self._student_get_values()
-        logger.debug("[Student Login UI] Attempting login with values:")
-        for k,v in vals.items():
-            logger.debug(f"[Student Login UI] Login input: {k} = {v}")
+    async def action_attempt_login(self, quick_vals: dict | None = None) -> None:
+        """Attempt to login with provided values."""
+        if quick_vals:
+            vals = quick_vals
+            logger.debug(f"Auto-login triggered with values: {vals}")
+        else:
+            vals = self._student_get_values()
+            logger.debug(f"Manual login attempt with UI values. {vals}")
         
         # perform validation
         ok, msg = _student_validate(vals)
         if not ok:
             self._show_error(msg)
             return
+        
+        # update UI to match sanitized values (from validation / quick_vals)
+        if quick_vals:
+            self.query_one("#session-id-input", Input).value = str(vals["session_id"])
+            self.query_one("#pw-input-input", Input).value = str(vals["password"])
+            self.query_one("#username-inputs-input", Input).value = str(vals["username"])
+            self.query_one("#server-inputs-input1", Input).value = str(vals["server_ip"])
+            self.query_one("#server-inputs-input2", Input).value = str(vals["server_port"])
         
         # [LOGGING] Initialize Session Logger
         try:
@@ -729,6 +741,28 @@ class LoginScreen(Screen):
         self.query_one(".error-message").remove_class("hidden")
         self.title = "Login Error"
 
+    def on_mount(self) -> None:
+        # check if the app passed us launch args
+        launch_args = getattr(self.app, "launch_args", None)
+        if launch_args:
+            quick_vals = {
+                "app": self.app,
+                "session_id": launch_args.session or "demo",
+                "username": launch_args.username or "JohnDoe123",
+                "server_ip": launch_args.ip or "kauschcarz.ddns.net",
+                "server_port": launch_args.port or 49000,
+                "password": launch_args.password or ""
+            }
+        
+            if launch_args.username and launch_args.ip:
+                self.set_timer(0.5, lambda: self.action_attempt_login(quick_vals=quick_vals))
+            else:
+                # just pre-fill
+                self.query_one("#session-id-input", Input).value = str(quick_vals["session_id"])
+                self.query_one("#pw-input-input", Input).value = str(quick_vals["password"])
+                self.query_one("#username-inputs-input", Input).value = str(quick_vals["username"])
+                self.query_one("#server-inputs-input1", Input).value = str(quick_vals["server_ip"])
+                self.query_one("#server-inputs-input2", Input).value = str(quick_vals["server_port"])
 
 class StudentUIApp(App):
 
@@ -757,11 +791,12 @@ class StudentUIApp(App):
         "login": LoginScreen,
     }
     
-    def __init__(self) -> None:
+    def __init__(self, launch_args = None) -> None:
         super().__init__()
         self.session: StudentInterface | None = None
         self.session_logger: SessionLogger | None = None
         self.quiz: Quiz | None = None
+        self.launch_args = launch_args
 
     def action_toggle_dark(self) -> None:
         self.theme = THEME if self.theme != THEME else "textual-dark"
@@ -790,6 +825,15 @@ class StudentUIApp(App):
             self.session_logger.log_session_end(reason="normal-exit", graceful=True)
 
 if __name__ == "__main__":
+    # parse cli args
+    parser = argparse.ArgumentParser(description="KnewIt Student Client")
+    parser.add_argument("--user", "-u", dest="username", help="Player Username")
+    parser.add_argument("--session", "-s", help="Session ID to join")
+    parser.add_argument("--ip", "-i", help="Server IP Address")
+    parser.add_argument("--port", "-p", type=int, help="Server Port", default=49000)
+    parser.add_argument("--password", "-pw", help="Session Password", default="")
+    args = parser.parse_args()
+    
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
 
@@ -802,5 +846,5 @@ if __name__ == "__main__":
     )
     logging.getLogger("knewit").setLevel(logging.DEBUG)
     logging.info("Student UI starting up...")
-    
-    StudentUIApp().run()
+    app = StudentUIApp(launch_args=args)
+    app.run()

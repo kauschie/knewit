@@ -77,21 +77,32 @@ def _student_validate(v: dict) -> tuple[bool, str]:
     if missing:
         return False, f"Please fill: {', '.join(missing)}."
 
-    # Port (robust)
+    # Port check
     try:
-        port = int(str(v["server_port"]).strip())
+        port_val = v["server_port"]
+        port = int(str(port_val).strip())
         if not (1 <= port <= 65535):
-            return False, "Port must be an integer between 1 and 65535."
-    except (TypeError, ValueError):
-        return False, "Port must be an integer between 1 and 65535."
+            return False, "Port must be 1-65535."
+        # Update the dict with the clean integer to be safe
+        v["server_port"] = port
+    except Exception:
+        return False, "Port must be a valid integer."
 
     ok, msg = _verify_address(str(v["server_ip"]).strip(), resolve=False)  # flip to True if you want DNS here
     if not ok:
         return False, msg
 
-    hn = v.get("username", "")
-    if " " in hn:
-        v["username"] = hn.replace(" ", "_")
+    un = v.get("username", "")
+    if not un:
+        return False, "Host name cannot be empty."
+    if " " in un:
+        un = un.replace(" ", "_")
+    if len(un) > 20:
+        un = un[:20]
+    if "\\" in un or "/" in un:
+        un = un.replace("\\", "_").replace("/", "_")
+
+    v["username"] = un
 
     return True, ""
 
@@ -102,11 +113,14 @@ def _host_validate(v: dict) -> tuple[bool, str]:
 
     # Port check (avoid .isdigit pitfalls like leading '+' etc.)
     try:
-        port = int(str(v["server_port"]).strip())
+        port_val = v["server_port"]
+        port = int(str(port_val).strip())
         if not (1 <= port <= 65535):
-            return False, "Port must be an integer between 1 and 65535."
-    except (TypeError, ValueError):
-        return False, "Port must be an integer between 1 and 65535."
+            return False, "Port must be 1-65535."
+        # Update the dict with the clean integer to be safe
+        v["server_port"] = port
+    except Exception:
+        return False, "Port must be a valid integer."
 
     logger.debug(f"Calling _verify_address with ip: {v['server_ip']}")
     ok, msg = _verify_address(str(v["server_ip"]).strip())
@@ -117,5 +131,11 @@ def _host_validate(v: dict) -> tuple[bool, str]:
     # Normalize host_name spaces -> underscores
     if " " in v.get("host_name", ""):
         v["host_name"] = v["host_name"].replace(" ", "_")
+    if not v["host_name"]:
+        return False, "Host name cannot be empty."
+    if len(v["host_name"]) > 20:
+        v["host_name"] = v["host_name"][:20]
+    if "\\" in v["host_name"] or "/" in v["host_name"]:
+        v["host_name"] = v["host_name"].replace("\\", "_").replace("/", "_")
 
     return True, ""

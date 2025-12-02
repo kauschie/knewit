@@ -23,17 +23,16 @@ from __future__ import annotations
 from typing import List
 import secrets
 import logging
-import random
 import asyncio
 import sys
+import argparse
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from dataclasses import dataclass
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Log, Label, Digits
-from textual.containers import Horizontal, Vertical, Container, VerticalScroll, HorizontalGroup, VerticalGroup, HorizontalScroll
+from textual.widgets import Header, Footer, Static, Button, Input, TabbedContent, TabPane, DataTable, ListView, ListItem, Button, Label
+from textual.containers import Horizontal, Vertical, Container, HorizontalGroup
 from textual.app import App, ComposeResult
 from textual import events, on, work
 from rich.text import Text
@@ -44,7 +43,7 @@ from client.widgets.plot_widgets import AnswerHistogramPlot, PercentCorrectPlot
 from client.widgets.quiz_selector import QuizSelector
 from client.widgets.quiz_preview_log import QuizPreviewLog
 from client.widgets.timedisplay import TimeDisplay
-from client.widgets.basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, PlayerCard, BorderedInputButtonContainer
+from client.widgets.basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, BorderedInputButtonContainer
 from client.utils import _host_validate
 from client.widgets.chat import RichLogChat
 from client.widgets.quiz_creator import QuizCreator
@@ -999,13 +998,14 @@ class LoginScreen(Screen):
             yield Static("* Server Error Message Placeholder *", classes="error-message hidden")
         yield Footer()
         
-        # --- unify both triggers on one action ---
-    async def action_attempt_login(self) -> None:
-        # gather input values
-        vals = self._host_get_values()
-        logger.debug("Attempting login with values:")
-        for k,v in vals.items():
-            logger.debug(f"Login input: {k} = {v}")
+    async def action_attempt_login(self, quick_vals: dict | None = None) -> None:
+        """Attempt to login with provided values."""
+        if quick_vals:
+            vals = quick_vals
+            logger.debug(f"Auto-login triggered with values: {vals}")
+        else:
+            vals = self._host_get_values()
+            logger.debug(f"Manual login attempt with UI values. {vals}")
         
         # perform validation
         ok, msg = _host_validate(vals)
@@ -1013,6 +1013,15 @@ class LoginScreen(Screen):
             logger.debug(f"validation failed: {msg}")
             self._show_error(msg)
             return
+        
+        # update UI to match sanitized values (from validation / quick_vals)
+        if quick_vals:
+            self.query_one("#session-inputs-input", Input).value = str(vals["session_id"])
+            self.query_one("#pw-inputs-input", Input).value = str(vals["password"])
+            self.query_one("#host-inputs-input", Input).value = str(vals["username"])
+            self.query_one("#server-inputs-input1", Input).value = str(vals["server_ip"])
+            self.query_one("#server-inputs-input2", Input).value = str(vals["server_port"])
+        
         
         # try to connect to server
         self.query_one(".error-message").add_class("hidden")
@@ -1102,6 +1111,30 @@ class LoginScreen(Screen):
         self.query_one(".error-message").remove_class("hidden")
         self.title = "Login Error"
 
+    def on_mount(self) -> None:
+        # check if the app passed us launch args
+        launch_args = getattr(self.app, "launch_args", None)
+        if launch_args:
+            quick_vals = {
+                "app": self.app,
+                "session_id": launch_args.session or "odin",
+                "username": launch_args.username or "host",
+                "server_ip": launch_args.ip or "kauschcarz.ddns.net",
+                "server_port": launch_args.port or 49000,
+                "password": launch_args.password or "",
+                "host_name": launch_args.username or "host",
+            }        
+        
+            if launch_args.username and launch_args.ip and launch_args.session:
+                self.set_timer(0.5, lambda: self.action_attempt_login(quick_vals=quick_vals))
+            else:
+                # just pre-fill
+                self.query_one("#session-inputs-input", Input).value = str(quick_vals["session_id"])
+                self.query_one("#pw-inputs-input", Input).value = str(quick_vals["password"])
+                self.query_one("#host-inputs-input", Input).value = str(quick_vals["username"])
+                self.query_one("#server-inputs-input1", Input).value = str(quick_vals["server_ip"])
+                self.query_one("#server-inputs-input2", Input).value = str(quick_vals["server_port"])
+
 
 class HostUIApp(App):
 
@@ -1139,9 +1172,10 @@ class HostUIApp(App):
         "login": LoginScreen,
     }
     
-    def __init__(self) -> None:
+    def __init__(self, launch_args = None) -> None:
         super().__init__()
         self.session: HostInterface | None = None
+        self.launch_args = launch_args
 
     # Bindings / actions
 
@@ -1161,6 +1195,15 @@ class HostUIApp(App):
     #         await self.session.stop()
 
 if __name__ == "__main__":
+    # parse cli args
+    parser = argparse.ArgumentParser(description="KnewIt Student Client")
+    parser.add_argument("--user", "-u", dest="username", help="Player Username")
+    parser.add_argument("--session", "-s", help="Session ID to join")
+    parser.add_argument("--ip", "-i", help="Server IP Address")
+    parser.add_argument("--port", "-p", type=int, help="Server Port", default=49000)
+    parser.add_argument("--password", "-pw", help="Session Password", default="")
+    args = parser.parse_args()
+    
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     
@@ -1177,9 +1220,7 @@ if __name__ == "__main__":
     # 2. Explicitly enable DEBUG for YOUR logger only
     # Since common.py defines logger = logging.getLogger("knewit"), we enable that.
     logging.getLogger("knewit").setLevel(logging.DEBUG)
-    
-    # If host_ui.py or other local modules use __name__, enable them too if needed
-    # logging.getLogger("client").setLevel(logging.DEBUG) 
-
     logging.info("Host UI starting up...")
-    HostUIApp().run()
+    
+    app = HostUIApp(launch_args=args)
+    app.run()
