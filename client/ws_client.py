@@ -34,7 +34,7 @@ class WSClient:
     """
 
     def __init__(self, url: str, on_event: Callable[[dict], Awaitable[None]]):
-        logger.debug("WSClient __init__ called.")
+        # logger.debug("WSClient __init__ called.")
         self.url = url
         self.on_event = on_event
         # asyncio.Queue is a thread-safe (coroutine-safe) FIFO; we use it to
@@ -44,10 +44,10 @@ class WSClient:
         self.ready_event = asyncio.Event()
         self.session_id = url.split("session_id=")[-1].split("&")[0]  # crude extraction
         self.player_id = url.split("player_id=")[-1]
-        logger.debug(f"WSClient initialized for session_id={self.session_id}, player_id={self.player_id}")
+        logger.info(f"WSClient initialized for session_id={self.session_id}, player_id={self.player_id}")
 
     async def start(self):
-        logger.debug(f"WSClient starting reconnect loop for {self.player_id}...")
+        logger.info(f"WSClient starting reconnect loop for {self.player_id}...")
         """Run forever (until stop() is called) and keep a live connection.
 
         This method:
@@ -102,16 +102,16 @@ class WSClient:
             else:
                 # If the connection ran to completion "cleanly", reset backoff.
                 backoff = 1
-                logger.debug("WebSocket connection closed")
+                logger.info("WebSocket connection closed")
                 
     async def wait_until_connected(self, timeout: float = 5.0) -> bool:
         """Wait until the WebSocket connection is established (or timeout)."""
         try:
-            logger.debug("Waiting for WSClient to connect...")
+            logger.info("Waiting for WSClient to connect...")
             await asyncio.wait_for(self.ready_event.wait(), timeout=timeout)
             return True
         except asyncio.TimeoutError:
-            logger.debug(f"WSClient connection timed out after {timeout} seconds.")
+            logger.info(f"WSClient connection timed out after {timeout} seconds.")
             return False
         
 
@@ -122,7 +122,7 @@ class WSClient:
           - if it's a 'ping', immediately sends a 'pong' (heartbeat)
           - else, forwards the message dict to the UI via on_event(...)
         """
-        logger.debug("WSClient receiver started.")
+        logger.info("WSClient receiver started.")
         try:
             async for raw in ws:
                 try:
@@ -141,6 +141,7 @@ class WSClient:
                     traceback.print_exc()
         except Exception as e:
             print(f"Receiver loop error: {e}")
+            logger.error(f"Receiver loop error: {e}")
             raise
 
     async def _sender(self, ws):
@@ -149,10 +150,10 @@ class WSClient:
         Waits for dicts placed on the send queue and writes them
         to the websocket as JSON strings.
         """
-        logger.debug("WSClient sender started.")
+        logger.info("WSClient sender started.")
         while True:
             payload = await self.send_q.get()
-            logger.debug(f"Sending payload: {payload} for {self.player_id}...")
+            # logger.debug(f"Sending payload: {payload} for {self.player_id}...")
             try:
                 
                 await ws.send(json.dumps(payload))
@@ -163,7 +164,7 @@ class WSClient:
     async def send(self, payload: dict):
         """Public API to enqueue an outbound message (non-blocking)."""
         # logger.debug(f"Enqueuing payload to send: {payload} for {self.player_id}...", stack_info=True)
-        logger.debug(f"Enqueuing payload to send: {payload} for {self.player_id}...")
+        # logger.debug(f"Enqueuing payload to send: {payload} for {self.player_id}...")
         await self.send_q.put(payload)
 
     def stop(self):

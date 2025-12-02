@@ -208,7 +208,9 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         "type": "error",
                         "message": str(e)
                     }))
-                    continue
+                    await ws.close()
+                    # continue
+                    break
 
                 session.add_player(player_id, ws=ws)
                 conn["session"] = session
@@ -287,7 +289,8 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     }))
                     # close connection immediately to stop retry loops
                     await ws.close()
-                    continue
+                    break
+                    # continue
                 
                 player = session.add_player(player_id, ws=ws)
                 
@@ -296,7 +299,9 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         "type": "error",
                         "message": "Name already taken"
                     }))
-                    continue
+                    await ws.close()
+                    break
+                    # continue
                 
                 player_list = [p.player_id for p in session.players.values()]
                 await printlog(f"[session] current players in session: {player_list}")

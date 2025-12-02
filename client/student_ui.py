@@ -43,6 +43,8 @@ class TitleUpdate(Message):
 class MainScreen(Screen):
     """Student main screen."""
 
+    name = "main"
+
     # --- RESTORED ORIGINAL CSS ---
     CSS = """
     #main-container { 
@@ -555,6 +557,8 @@ class MainScreen(Screen):
 class LoginScreen(Screen):
     """Screen for host to enter session details and login."""
     
+    name = "login"
+    
     CSS = """
     #login-container {
         align: center middle;
@@ -703,6 +707,7 @@ class LoginScreen(Screen):
         err = self.query_one(".error-message", Static)
         err.update(f"[b]* {msg} *[/b]")
         self.query_one(".error-message").remove_class("hidden")
+        self.title = "Login Error"
 
 
 class StudentUIApp(App):

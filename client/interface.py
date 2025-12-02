@@ -96,14 +96,17 @@ class SessionInterface:
                 logger.info(f"Resetting to login. Reason: {error_msg}")
             
             # Switch to login
-            # await self.app.switch_mode("login") 
-            await self.app.pop_screen()
+            # await self.app.switch_mode("login")
+            screen_name = self.app.screen.name if self.app.screen else "unknown"
+            logger.debug(f"Current screen before reset: {screen_name}")
+            if screen_name != "login":
+                await self.app.pop_screen() # pop back to main screen
+            
             
             # Optional: Display error on login screen
             if error_msg:
-                login_screen = self.app.get_screen("login")
-                if hasattr(login_screen, "_show_error"):
-                    login_screen._show_error(error_msg)
+                if hasattr(self.app.screen, "_show_error"):
+                    self.app.screen._show_error(error_msg)
                     
     async def send(self, payload: dict):
         if not self.ws:
@@ -114,8 +117,8 @@ class SessionInterface:
             
     def get_screen(self, screen_type:str = "main"):
         """Helper to access the MainScreen instance."""
-        if screen_type != "main" and screen_type != "lobby":
-            raise ValueError("screen_type must be 'main' or 'lobby'")
+        if screen_type != "main" and screen_type != "login":
+            raise ValueError("screen_type must be 'main' or 'login'")
         if not self.app:
             raise RuntimeError("App reference is None.")
         
@@ -132,6 +135,7 @@ class SessionInterface:
             return
 
         self.ws.stop()           # signal WSClient loop to exit
+        logger.debug("Waiting for WSClient task to finish...")
 
         if self.ws_task:
             try:
@@ -252,11 +256,12 @@ class StudentInterface(SessionInterface):
             logger.error(f"Server error: {detail}")
             
             # If we are on the login screen, show the error there
-            if self.app.screen.name == "login":
-                self.app.screen._show_error(detail)
-                # If kicked, force disconnect to be safe
-                if "kicked" in str(detail).lower():
-                    await self.stop()
+            if "kicked" in str(detail).lower():
+                await self.reset_to_login(error_msg="You have been kicked from the session by the host.")
+            elif "session not found" in str(detail).lower():
+                await self.reset_to_login(error_msg="Session not found. Please check the Session ID.")
+            elif "already taken" in str(detail).lower():
+                await self.reset_to_login(error_msg="Username already taken in this session. Please choose a different name.")
             else:
                 screen.append_chat("System", f"Error: {detail}")
             
@@ -329,7 +334,7 @@ class HostInterface(SessionInterface):
             else:
                 screen.title = f"Contacted server as {self.username}"
                 screen.sub_title = f"Creating Session {self.session_id}"
-                await self.send_create()
+                # await self.send_create()
             return
             
         elif msg_type == "session.created":
@@ -395,6 +400,14 @@ class HostInterface(SessionInterface):
         elif msg_type == "quiz.finished":
             leaderboard = message.get("leaderboard", [])
             screen.end_quiz(leaderboard)
+            
+        elif msg_type == "error":
+            detail = message.get('message') or message.get('detail')
+            logger.error(f"Server error: {detail}")
+            # screen.append_chat("System", f"Error: {detail}")
+            if "already exists" in str(detail).lower():
+                await self.reset_to_login(error_msg="Session ID already exists. Please choose a different one.")
+            
         else:
             await super().on_event(message)
     

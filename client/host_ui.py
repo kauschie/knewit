@@ -55,6 +55,8 @@ MAX_CHAT_MESSAGES = 200
 class MainScreen(Screen):
     """Host main screen."""
 
+    name = "main"
+
     CSS = """
     #main-container { 
         layout: grid;
@@ -942,6 +944,8 @@ class MainScreen(Screen):
 class LoginScreen(Screen):
     """Screen for host to enter session details and login."""
     
+    name = "login"
+    
     CSS = """
     #login-container {
         align: center middle;
@@ -1035,8 +1039,8 @@ class LoginScreen(Screen):
             if (self.app.session.session_id != vals["session_id"] or
                 self.app.session.username != vals["host_name"]):
                 
-                logger.debug("[Host]Session ID or username changed; disconnecting and updating session info.")
-                await self.app.session.stop()
+                # logger.debug("[Host]Session ID or username changed; disconnecting and updating session info.")
+                # await self.app.session.stop()
                 
                 self.app.session = HostInterface.from_dict(vals.copy())    
             else:
@@ -1095,7 +1099,7 @@ class LoginScreen(Screen):
         err = self.query_one(".error-message", Static)
         err.update(f"[b]* {msg} *[/b]")   # simple emphasis
         self.query_one(".error-message").remove_class("hidden")
-        # you can also add a CSS class for styling/animation if you like
+        self.title = "Login Error"
 
 
 class HostUIApp(App):
