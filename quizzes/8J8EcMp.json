@@ -1,7 +1,9 @@
 {
+  "quiz_id": "8J8EcMp",
   "title": "Halo Lore",
   "questions": [
     {
+      "id": "q1",
       "prompt": "Where are the forerunners?",
       "options": [
         "Humans",
@@ -9,9 +11,10 @@
         "The Sangheili",
         "The Shan Sy Um"
       ],
-      "correct_idx": 0
+      "correct_idx": 1
     },
     {
+      "id": "q2",
       "prompt": "What are the rings?",
       "options": [
         "A weapon to wipe out the food supply for the flood, everything.",
@@ -19,7 +22,7 @@
         "A safe haven to protect humanity from the flood",
         "A monument to the gods"
       ],
-      "correct_idx": 0
+      "correct_idx": 1
     }
   ]
 }

@@ -410,12 +410,30 @@ class MainScreen(Screen):
     
     def end_quiz(self, leaderboard: list[dict]) -> None:
         logger.debug("[Student UI] end_quiz called.")
+        logger.debug(f"[Student UI] Self Username: '{self.username}'")
+        logger.debug(f"[Student UI] Leaderboard: {leaderboard}")
         
         if self.quiz_question_widget:
             self.quiz_question_widget.clear_question()
             if leaderboard:
-                my_score = next((p['score'] for p in leaderboard if p['name'] == self.username), 0)
-                rank = next((i+1 for i, p in enumerate(leaderboard) if p['name'] == self.username), len(leaderboard))
+                # my_score = next((p['score'] for p in leaderboard if p['name'] == self.username), 0)
+                # rank = next((i+1 for i, p in enumerate(leaderboard) if p['name'] == self.username), len(leaderboard))
+                
+                # logger.debug(f"p[name]s: {[p['name'] for p in leaderboard]}")
+                
+                # Try to find the player dict first
+                player_entry = next((p for p in leaderboard if p['name'] == self.username), None)
+                
+                if player_entry:
+                    my_score = player_entry['score']
+                    # Calculate rank (1-based index)
+                    rank = next(i + 1 for i, p in enumerate(leaderboard) if p['name'] == self.username)
+                else:
+                    # Fallback if username doesn't match
+                    logger.error(f"Username '{self.username}' not found in leaderboard!")
+                    my_score = 0
+                    rank = "-"
+                
                 
                 printed_tokens = []
                 theme_vars = self.app.get_css_variables()
