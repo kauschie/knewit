@@ -3,7 +3,6 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import string
-import textwrap
 
 from textual.reactive import reactive
 from textual.widgets import RichLog

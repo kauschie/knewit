@@ -23,7 +23,7 @@ from rich.text import Text
 
 from server.quiz_types import StudentQuestion, Quiz
 from client.widgets.basic_widgets import BorderedInputContainer, BorderedTwoInputContainer, BorderedInputButtonContainer
-from client.utils import _student_validate
+from client.utils import _student_validate, format_leaderboard_row, generate_option_labels
 from client.widgets.chat import RichLogChat
 from client.widgets.quiz_question_widget import QuizQuestionWidget
 from client.interface import StudentInterface
@@ -32,8 +32,7 @@ from client.session_log import SessionLogger, load_latest_incomplete_history
 
 THEME = "flexoki"
 MAX_CHAT_MESSAGES = 200
-LABELS = ["A", "B", "C", "D"]
-
+DEFAULT_LABELS = generate_option_labels(4)
 
 class TitleUpdate(Message):
     def __init__(self, new_title: str) -> None:
@@ -400,7 +399,7 @@ class MainScreen(Screen):
             
             # [LOGGING] Answer Received
             if hasattr(self.app, "session_logger") and self.app.session_logger:
-                val = LABELS[correct_option] if 0 <= correct_option < len(LABELS) else "?"
+                val = DEFAULT_LABELS[correct_option] if 0 <= correct_option < len(DEFAULT_LABELS) else "?"
                 self.app.session_logger.log_answer_received(
                     q_index=self.round_idx - 1, # 0-based
                     correct_index=correct_option,
@@ -486,28 +485,17 @@ class MainScreen(Screen):
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
-        ping_key, name_key, score_key, correct_key, muted_key, *round_keys = keys
+        ping_key, name_key, score_key, \
+        correct_key, muted_key, *round_keys = keys
 
         # 3) Add rows
         for p in self.players:
-            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
-            name = p["player_id"]
-            score = f"{float(p.get("score", 0)):.1f}" 
-            correct = int(p.get("correct_count", 0))
-            is_muted = "🔇" if p.get("is_muted", False) else "🔊"
-            
-            raw_rounds = p.get("round_scores", [])
-            rounds = [int(v) for v in raw_rounds[:current_rounds_count]]
-            
-            while (len(rounds) < current_rounds_count):
-                rounds.append(0)
-
-            row = [ping, name, score, correct, is_muted, *rounds]
+            row = format_leaderboard_row(p, current_rounds_count)
             dt.add_row(*row)
 
         # 4) Sort by score (desc)
-        if len(dt.columns) > 2:
-            dt.sort(score_key, reverse=True)
+        if len(dt.columns) >= 4:
+            dt.sort(score_key, correct_key, ping_key, name_key, reverse=True)
 
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:
         if user == "System":
@@ -565,7 +553,7 @@ class MainScreen(Screen):
                 idx_map = {"option-a": 0, "option-b": 1, "option-c": 2, "option-d": 3}
                 idx = idx_map.get(bid)
                 if idx is not None:
-                    val = LABELS[idx] if idx < len(LABELS) else "?"
+                    val = DEFAULT_LABELS[idx] if idx < len(DEFAULT_LABELS) else "?"
                     self.app.session_logger.log_answer_submitted(
                         q_index=self.round_idx - 1, # 0-based
                         answer_index=idx,

@@ -44,7 +44,7 @@ from client.widgets.quiz_selector import QuizSelector
 from client.widgets.quiz_preview_log import QuizPreviewLog
 from client.widgets.timedisplay import TimeDisplay
 from client.widgets.basic_widgets import BorderedInputRandContainer, BorderedTwoInputContainer, BorderedInputButtonContainer
-from client.utils import _host_validate
+from client.utils import _host_validate, format_leaderboard_row, calculate_percent_correct, generate_option_labels
 from client.widgets.chat import RichLogChat
 from client.widgets.quiz_creator import QuizCreator
 
@@ -489,31 +489,18 @@ class MainScreen(Screen):
 
         # 2) Add columns and capture keys (order matches labels)
         keys = dt.add_columns(*base_labels, *round_labels)
-        ping_key, name_key, total_key, correct_key, muted_key,*round_keys = keys  # <-- keep these
+        
+        ping_key, name_key, total_key, \
+        correct_key, muted_key,*round_keys = keys  # <-- key refs for sorting
 
         # 3) Add rows (use ints where appropriate so sort is numeric)
         for p in self.players:
-            ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
-            name = p["player_id"]
-            score = f"{float(p.get("score", 0)):.1f}" 
-            correct = int(p.get("correct_count", 0))
-            is_muted = "🔇" if p.get("is_muted", False) else "🔊"
-            
-    
-            # only take as many scores as we have columns for
-            # this prevents datatable from crashing if the server sends more rounds than we display
-            raw_rounds = p.get("round_scores", [])
-            rounds = [int(v) for v in raw_rounds[:current_rounds_count]]
-            
-            while (len(rounds) < current_rounds_count):
-                # pad unanswered questions with 0
-                rounds.append(0)
-
-            row = [ping, name, score, correct, is_muted, *rounds]
+            row = format_leaderboard_row(p, current_rounds_count)            
             dt.add_row(*row)
 
         # 4) Sort by Total (desc). Use the column KEY, not the label string.
-        dt.sort(total_key, reverse=True)
+        if (len(dt.columns) >= 4):
+            dt.sort(total_key, correct_key, ping_key, name_key, reverse=True)
 
 
     def _rebuild_user_controls(self) -> None:
@@ -594,7 +581,7 @@ class MainScreen(Screen):
             return []
 
         options = questions[q_idx].get("options", [])
-        return [chr(65 + i) for i in range(len(options))]  # A, B, C, ...
+        return generate_option_labels(len(options))
     
     def start_quiz(self) -> None:
         """Prepare state for Q0 and show 'waiting for answers'."""
@@ -680,8 +667,7 @@ class MainScreen(Screen):
             logger.debug(f"[Host UI] Percent correct for round {target_round} already plotted; skipping.")
             return
         
-        
-        percent_correct = self.calculate_percent_correct(correct_idx, updated_histogram)
+        percent_correct = calculate_percent_correct(correct_idx, updated_histogram)
         logger.debug(f"[Host UI] show_correct_answer(). Percent correct: {percent_correct}")
         self.pc_plot.set_series([*self.pc_plot.percents, percent_correct])
     
@@ -752,23 +738,7 @@ class MainScreen(Screen):
     def update_answer_histogram(self, bins: List[int]) -> None:
         """Update the answer histogram with new bin counts."""
         if self.hist_plot:
-            self.hist_plot.counts = tuple(bins)
-    
-    # calculate percent correct -> move to server eventually to keep clients thin
-    def calculate_percent_correct(self, correct_idx, counts) -> float:
-        """Demo method to calculate a random percent correct."""
-        if not self.selected_quiz:
-            return 0.0
-        
-        sum_responses = sum(counts)
-        if sum_responses == 0:
-            return 0.0
-        
-        if 0 <= correct_idx < len(counts):
-            correct_count = counts[correct_idx]
-            return (correct_count / sum_responses) * 100.0
-        
-        return 0.0        
+            self.hist_plot.counts = tuple(bins) 
     
     
     def append_chat(self, user: str, msg: str, priv: str | None = None) -> None:

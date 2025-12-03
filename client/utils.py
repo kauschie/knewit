@@ -23,7 +23,6 @@ def _is_valid_hostname(name: str, allow_single_label: bool = True) -> bool:
         return False
     return True
     
-    
 def _verify_address(host: str, *, resolve: bool = False, timeout: float = 1.0) -> tuple[bool, str]:
     """Validate IPv4/IPv6 literal or hostname. Optionally attempt DNS resolution."""
     if not host:
@@ -139,3 +138,56 @@ def _host_validate(v: dict) -> tuple[bool, str]:
         v["host_name"] = v["host_name"].replace("\\", "_").replace("/", "_")
 
     return True, ""
+
+# move to server eventually?
+def calculate_percent_correct(correct_idx: int, counts: list[int]) -> float:
+    """Calculate percentage of answers that matched the correct index."""
+    if not counts or correct_idx is None:
+        return 0.0
+    
+    total_responses = sum(counts)
+    if total_responses == 0:
+        return 0.0
+        
+    if 0 <= correct_idx < len(counts):
+        correct_count = counts[correct_idx]
+        return (correct_count / total_responses) * 100.0
+        
+    return 0.0
+
+def generate_option_labels(count: int) -> list[str]:
+    """Generate ['A', 'B', 'C'...] for a given number of options."""
+    return [chr(65 + i) for i in range(count)]
+
+def format_leaderboard_row(p: dict, round_target_count: int) -> list:
+    """
+    Process a player dict into a standardized row for the DataTable.
+    Handles score casting, ping validation, and round history padding.
+    
+    Returns: [ping, name, score(float), correct(int), muted_icon(str), *round_scores(float)]
+    """
+    # Ping
+    # raw_ping = p.get("latency_ms")
+    ping = int(p.get("latency_ms", 0)) if str(p.get("latency_ms", "")).isdigit() else p.get("latency_ms", "-")
+    
+    # Metadata
+    name = p.get("player_id", "Unknown")
+    
+    # Score & Correct (Keep as numbers for correct sorting in DataTable)
+    score = float(p.get("score", 0))
+    correct = int(p.get("correct_count", 0))
+    
+    # Muted Status
+    is_muted = "🔇" if p.get("is_muted", False) else "🔊"
+    
+    # Round History (Safety Slice & Pad)
+    raw_rounds = p.get("round_scores", [])
+    
+    # 1. Slice to target
+    rounds = [float(v) for v in raw_rounds[:round_target_count]]
+    
+    # 2. Pad if short
+    while len(rounds) < round_target_count:
+        rounds.append(0.0)
+        
+    return [ping, name, score, correct, is_muted, *rounds]
