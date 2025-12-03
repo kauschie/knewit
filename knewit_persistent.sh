@@ -2,43 +2,39 @@
 
 # ==================================================================
 # KnewIt Persistent Launcher
-# Usage: ./knewit_persistent.sh [username]
+# First run: Starts in background.
+# Subsequent runs: Opens the window.
 # ==================================================================
 
 SESSION_NAME="knewit_lobby"
 CURRENT_USER="${1:-$(whoami)}"
+REAL_LAUNCHER="/home/mkausch/dev/3640/project/knewit/run.sh"
 
-# ABSOLUTE path to your safe launcher script (the one that handles /tmp)
-# Update this if your path changes!
-REAL_LAUNCHER="/home/stu/mkausch/public_html/knewit/knewit_auto_login.sh"
-
-# 1. Check if the persistent session already exists
+# 1. Check if session exists
 tmux has-session -t "$SESSION_NAME" 2>/dev/null
 
 if [ $? != 0 ]; then
-    # ---------------------------------------------------------------
-    # CASE A: Session Missing -> Create it (Detached)
-    # ---------------------------------------------------------------
+    # ==============================================================
+    # SCENARIO A: FIRST RUN (Session doesn't exist)
+    # ==============================================================
     echo "🚀 Initializing background lobby for $CURRENT_USER..."
     
-    # Create session in background (-d)
-    tmux new-session -d -s "$SESSION_NAME"
+    # Create detached session (-d)
+    # Force UTF-8 (-u) and 256-color (-2)
+    tmux -u -2 new-session -d -s "$SESSION_NAME"
     
-    # Send the launch command to the hidden session
-    # We pass the username as a direct argument ($1) to the launcher
-    # 'C-m' simulates pressing ENTER
+    # Configure the session
     tmux send-keys -t "$SESSION_NAME" "$REAL_LAUNCHER $CURRENT_USER" C-m
     
-else
-    # ---------------------------------------------------------------
-    # CASE B: Session Exists -> Just notify
-    # ---------------------------------------------------------------
-    echo "✅ Found active lobby. Reconnecting..."
+    echo "✅ Session running in background."
+    echo "   Run this command again to open the lobby."
+    
+    # CRITICAL CHANGE: Exit here so we don't attach!
+    exit 0
 fi
 
-# 2. Attach the user to the session
-# ---------------------------------
-# This brings the background app to the foreground.
-# - User sees the TUI.
-# - User presses 'Ctrl+B' then 'D' to detach (hide) it again.
-exec tmux attach-session -t "$SESSION_NAME"
+# ==============================================================
+# SCENARIO B: SUBSEQUENT RUNS (Session exists)
+# ==============================================================
+echo "✅ Found active lobby. Opening..."
+exec tmux -u -2 attach-session -t "$SESSION_NAME"

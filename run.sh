@@ -15,8 +15,8 @@ SERVER_PORT="49000"
 
 # Path to the Shared Executable
 # IMPORTANT: This MUST be an ABSOLUTE path because we change directories below.
-EXE_PATH="/home/stu/mkausch/public_html/knewit/knewit_student_linux" # on Odin
-# EXE_PATH="/home/mkausch/dev/3640/project/knewit/dist/knewit_student_linux" # local
+# EXE_PATH="/home/stu/mkausch/public_html/knewit/knewit_student_linux" # on Odin
+EXE_PATH="/home/mkausch/dev/3640/project/knewit/dist/knewit_student_linux" # local
 
 # --- 2. Runtime Environment Setup ---
 
@@ -48,8 +48,4 @@ echo "📂 Runtime: $UNIQUE_TMP_DIR (Will be cleaned up on exit)"
 echo "--------------------------------------------------"
 
 # Run the executable with the auto-login arguments
-"$EXE_PATH" \
-    --user "$USERNAME" \
-    --session "$SESSION_ID" \
-    --ip "$SERVER_IP" \
-    --port "$SERVER_PORT"
+"$EXE_PATH" --user "$USERNAME" --session "$SESSION_ID" --ip "$SERVER_IP" --port "$SERVER_PORT"
