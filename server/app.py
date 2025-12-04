@@ -370,7 +370,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                         sq = StudentQuestion.from_question(question)
                         sq.index = session.current_question_idx
                         sq.total = len(session.quiz.questions)
-                        sq.timer = 10 # get from question or orchestrator later
+                        sq.timer = 20 # get from question or orchestrator later
 
                         # mute all players at start of question
                         for p in session.players.values():
@@ -409,7 +409,7 @@ async def ws_endpoint(ws: WebSocket, session_id: str, player_id: str):
                     sq = StudentQuestion.from_question(question)
                     sq.index = session.current_question_idx
                     sq.total = len(session.quiz.questions)
-                    sq.timer = 10 # get from question or orchestrator later
+                    sq.timer = 20 # get from question or orchestrator later
 
                     # mute all players at start of question
                     for p in session.players.values():

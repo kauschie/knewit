@@ -1,0 +1,138 @@
+{
+    "quiz_id": "demo_p2p_time",
+    "title": "Distributed Systems Demo Quiz: P2P & Time/Global States",
+    "questions": [
+        {
+            "id": "q001",
+            "prompt": "What is a defining characteristic of peer-to-peer (P2P) systems?",
+            "options": [
+                "A central server coordinates all communication",
+                "All nodes have the same functional capabilities and responsibilities",
+                "Only super-nodes can initiate communication",
+                "Nodes cannot directly access each other's resources"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q002",
+            "prompt": "Which of the following is an advantage of P2P systems?",
+            "options": [
+                "Guaranteed anonymity for all users",
+                "No need for routing overlays",
+                "Ability to exploit unused resources at hosts for scalability",
+                "Easier management of mutable data compared to centralized servers"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q003",
+            "prompt": "Which architecture relies on a central server that stores metadata and performs lookups, such as in the original Napster?",
+            "options": [
+                "Pure decentralized overlay",
+                "Hybrid decentralized overlay",
+                "Centralized overlay",
+                "Structured overlay"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q004",
+            "prompt": "What type of overlay controls network topology tightly and places files at specific locations?",
+            "options": [
+                "Unstructured overlay",
+                "Structured overlay",
+                "Flooding-based overlay",
+                "Hybrid overlay"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q005",
+            "prompt": "Which of the following is TRUE about unstructured P2P networks?",
+            "options": [
+                "Resource locations are known by all peers",
+                "Content is placed according to an organized topology",
+                "Finding resources typically requires searching or flooding",
+                "Each peer is responsible for a specific range of object IDs"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q006",
+            "prompt": "Which peer-to-peer system generation includes middleware layers for application-independent resource management?",
+            "options": [
+                "First generation",
+                "Second generation",
+                "Third generation",
+                "Fourth generation"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q007",
+            "prompt": "In distributed systems, what causes **clock drift**?",
+            "options": [
+                "Network congestion",
+                "Different hardware and environmental conditions affecting local clocks",
+                "Process execution delays",
+                "Incorrect timestamp formats"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q008",
+            "prompt": "What is the primary purpose of synchronizing physical clocks in a distributed system?",
+            "options": [
+                "To eliminate clock skew entirely",
+                "To ensure all processes always execute at the same speed",
+                "To ensure timestamps reflect a sufficiently consistent notion of time",
+                "To guarantee all messages arrive in FIFO order"
+            ],
+            "correct_idx": 2
+        },
+        {
+            "id": "q009",
+            "prompt": "Which synchronization approach uses a time server and adjusts the local clock based on half the round-trip delay?",
+            "options": [
+                "Lamport’s logical clock algorithm",
+                "Christian’s algorithm",
+                "Vector clocks",
+                "NTP multicast mode"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q010",
+            "prompt": "What is the main limitation of using physical time to determine event ordering in distributed systems?",
+            "options": [
+                "Local clocks are always perfectly synchronized",
+                "Message passing delays make precise timestamp ordering unreliable",
+                "Applications cannot generate timestamps",
+                "Processes do not maintain histories of events"
+            ],
+            "correct_idx": 1
+        },
+        {
+            "id": "q011",
+            "prompt": "What problem does clock skew represent?",
+            "options": [
+                "Different processes record different times for events due to clock differences",
+                "Messages cannot be delivered reliably",
+                "Processes cannot execute concurrently",
+                "Only one process can maintain accurate time"
+            ],
+            "correct_idx": 0
+        },
+        {
+            "id": "q012",
+            "prompt": "Which best describes a process’s history in the time/global-state model?",
+            "options": [
+                "A random sequence of events unrelated to system state",
+                "A series of events that occurred in the process in total order",
+                "A collection of timestamps from other nodes",
+                "A tree structure of all messages sent and received by the network"
+            ],
+            "correct_idx": 1
+        }
+    ]
+}

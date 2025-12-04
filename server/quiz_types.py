@@ -64,7 +64,7 @@ class StudentQuestion:
         }
     
     @classmethod
-    def from_question(cls, question: Question, timer: int = 10) -> "StudentQuestion":
+    def from_question(cls, question: Question, timer: int = 20) -> "StudentQuestion":
         return cls(
             id=question.id,
             prompt=question.prompt,
@@ -119,7 +119,7 @@ class Quiz:
     questions: List[Question]
     quiz_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     
-    default_timer: int = 10
+    default_timer: int = 20
     default_points: float = 10
 
     
@@ -146,7 +146,7 @@ class Quiz:
             quiz_id=data.get("quiz_id", str(uuid.uuid4())[:8]),
             title=data["title"],
             questions=[Question.from_dict(q) for q in data["questions"]],
-            default_timer=data.get("default_timer", 10),
+            default_timer=data.get("default_timer", 20),
             default_points=data.get("default_points", 10.0)
         )
     
@@ -369,7 +369,7 @@ class QuizSession:
         
         # Quiz-level settings - adjust as needed for more complex scoring
         max_points = self.quiz.default_points if self.quiz else 10.0
-        total_time = float(self.quiz.default_timer if self.quiz else 10)
+        total_time = float(self.quiz.default_timer if self.quiz else 20)
         min_points = math.floor(max_points * 0.5)
         
         for pid, player in self.players.items():

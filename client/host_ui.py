@@ -602,7 +602,7 @@ class MainScreen(Screen):
 
         self.round_active = True
         if self.timer:
-            self.timer.start(timer_duration or 10)  # demo: 30 second timer
+            self.timer.start(timer_duration or 20)  # demo: 30 second timer
         
         self.round_idx = q_idx + 1  # for leaderboard columns
 
