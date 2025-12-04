@@ -9,13 +9,13 @@
 # --- Configuration ---
 HOST_COUNT="${1:-5}"
 TMUX_SESSION="knewit_hosts"
-BASE_SESSION_ID="demo"
-SERVER_IP="kauschcarz.ddns.net"
+BASE_SESSION_ID="odin"
+SERVER_IP="0.0.0.0"
 SERVER_PORT="49000"
 
 # ABSOLUTE path to your Host executable
 # (Update this if your path is different!)
-EXE_PATH="/home/mkausch/dev/3640/project/knewit/dist/knewit_host_linux"
+EXE_PATH="/home/stu/mkausch/public_html/knewit/knewit_host_linux"  # on Odin
 
 # --- 1. Clean Start ---
 tmux kill-session -t "$TMUX_SESSION" 2>/dev/null

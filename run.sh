@@ -10,7 +10,7 @@ USERNAME="${1:-$(whoami)}"
 
 # Server Defaults
 SESSION_ID="demo"
-SERVER_IP="kauschcarz.ddns.net"
+SERVER_IP="0.0.0.0"
 SERVER_PORT="49000"
 
 # Path to the Shared Executable

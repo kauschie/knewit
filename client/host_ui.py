@@ -958,7 +958,7 @@ class LoginScreen(Screen):
                                              input_placeholder="Leave blank for no password", 
                                              id="pw-inputs")
             yield BorderedTwoInputContainer(border_title="Server IP",
-                                            input1_placeholder="0.0.0.0 or kauschcarz.ddns.net",
+                                            input1_placeholder="0.0.0.0",
                                             input2_placeholder="49000",
                                             id="server-inputs")
             yield BorderedInputButtonContainer(input_title="Login Details",
@@ -1066,8 +1066,7 @@ class LoginScreen(Screen):
             "app": self.app,
             "session_id": self.query_one("#session-inputs-input", Input).value.strip() or "demo",
             "password":   self.query_one("#pw-inputs-input", Input).value.strip(),
-            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "kauschcarz.ddns.net",
-            # "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
+            "server_ip":  self.query_one("#server-inputs-input1", Input).value.strip() or "0.0.0.0",
             "server_port": self.query_one("#server-inputs-input2", Input).value.strip() or "49000",
             "host_name":  self.query_one("#host-inputs-input", Input).value.strip() or "host",
         }
@@ -1089,7 +1088,7 @@ class LoginScreen(Screen):
                 "app": self.app,
                 "session_id": launch_args.session or "odin",
                 "username": launch_args.username or "host",
-                "server_ip": launch_args.ip or "kauschcarz.ddns.net",
+                "server_ip": launch_args.ip or "0.0.0.0",
                 "server_port": launch_args.port or 49000,
                 "password": launch_args.password or "",
                 "host_name": launch_args.username or "host",

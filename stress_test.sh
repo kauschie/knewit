@@ -11,12 +11,12 @@ TARGET_SESSION="${2:-demo}"
 
 BOT_COUNT=20
 BASE_NAME="bot"
-SERVER_IP="kauschcarz.ddns.net"
+SERVER_IP="0.0.0.0"
 SERVER_PORT="49000"
 
 # ABSOLUTE Path to Student Executable
 # (Or python script if testing locally: "python /absolute/path/to/client/student_ui.py")
-EXE_PATH="/home/stu/mkausch/public_html/knewit/knewit_student_linux"
+EXE_PATH="/home/mkausch/dev/3640/project/knewit/dist/knewit_student_linux"
 
 # --- 1. Clean Start ---
 tmux kill-session -t "$SESSION_NAME" 2>/dev/null
